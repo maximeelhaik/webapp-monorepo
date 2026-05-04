@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "npm run build --workspace=@new-app-ia/core",
     "dev": "vite",
     "build": "npm run build --workspace=@new-app-ia/adjectif",
     "preview": "npm run preview --workspace=@new-app-ia/adjectif",

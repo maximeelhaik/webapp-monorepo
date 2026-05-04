@@ -15,11 +15,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "@new-app-ia/core": ["../../packages/core/src/index.ts"],
-      "@new-app-ia/core/server": ["../../packages/core/src/gemini.ts"]
-    }
+    "baseUrl": "."
   },
   "include": ["src", "api"]
 }
