@@ -1,4 +1,4 @@
-import { generateAiStream, GEMINI_MODEL, SYSTEM_INSTRUCTION, createAiStreamResponse } from "@new-app-ia/core/server";
+import { generateAiStream, GEMINI_MODEL, SYSTEM_INSTRUCTION, createAiStreamResponse } from "../../packages/core/src/gemini";
 
 export const config = {
   runtime: 'edge',
