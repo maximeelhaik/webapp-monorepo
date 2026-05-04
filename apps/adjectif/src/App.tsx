@@ -99,8 +99,6 @@ export default function App() {
   const [aiResponse, setAiResponse] = useState('');
   const [submittedAdjective, setSubmittedAdjective] = useState('');
 
-  const currentTheme = THEMES[ACTIVE_THEME] || THEMES.POETIC;
-
   // Suggérer des adjectifs par défaut
   const suggestions = ['Beau', 'Grand', 'Triste', 'Froid', 'Sombre', 'Léger'];
 

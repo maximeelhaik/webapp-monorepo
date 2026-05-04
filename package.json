@@ -9,12 +9,12 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "npm run build -w apps/adjectif",
-    "preview": "npm run preview -w apps/adjectif",
-    "clean": "npm run clean -w apps/adjectif",
-    "lint": "npm run lint -w apps/adjectif",
+    "build": "npm run build --workspace=@new-app-ia/adjectif",
+    "preview": "npm run preview --workspace=@new-app-ia/adjectif",
+    "clean": "npm run clean --workspace=@new-app-ia/adjectif",
+    "lint": "npm run lint --workspace=@new-app-ia/adjectif",
     "dev:world": "APP=world vite",
-    "build:world": "npm run build -w apps/world"
+    "build:world": "npm run build --workspace=@new-app-ia/world"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
