@@ -139,28 +139,23 @@ export function createKvDbHandler(defaultKey: string) {
   };
 }
 
-export function createAiStreamResponse(responseStreamPromise: Promise<any>) {
+export async function createAiStreamResponse(responseStreamPromise: Promise<any>) {
+  const response = await responseStreamPromise;
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       const encoder = new TextEncoder();
-      responseStreamPromise.then(async (response) => {
-        try {
-          for await (const chunk of response) {
-            if (chunk.text) {
-              controller.enqueue(encoder.encode(chunk.text));
-            }
+      try {
+        for await (const chunk of response) {
+          if (chunk.text) {
+            controller.enqueue(encoder.encode(chunk.text));
           }
-        } catch (error: any) {
-          console.error("[SERVER STREAM] Error in iterator:", error);
-          controller.enqueue(encoder.encode(`---ERROR---${error.message || "Erreur AI"}`));
-        } finally {
-          controller.close();
         }
-      }).catch((err) => {
-        console.error("[SERVER STREAM] Error resolving stream promise:", err);
-        controller.enqueue(encoder.encode(`---ERROR---${err.message || "Erreur AI"}`));
+      } catch (error: any) {
+        console.error("[SERVER STREAM] Error in iterator:", error);
+        controller.enqueue(encoder.encode(`---ERROR---${error.message || "Erreur AI"}`));
+      } finally {
         controller.close();
-      });
+      }
     },
   });
 

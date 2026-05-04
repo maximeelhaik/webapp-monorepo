@@ -1,4 +1,4 @@
-import { generateAiStream, GEMINI_MODEL, SYSTEM_INSTRUCTION, createAiStreamResponse } from "./core/gemini";
+import { generateAiStream, GEMINI_MODEL, SYSTEM_INSTRUCTION, createAiStreamResponse } from "@new-app-ia/core/server";
 
 export const config = {
   runtime: 'edge',
@@ -41,7 +41,7 @@ export default async function handler(req: Request) {
     });
   }
 
-  return createAiStreamResponse(
+  return await createAiStreamResponse(
     generateAiStream({
       contents: `très ${prompt}`,
       systemInstruction: SYSTEM_INSTRUCTION,
