@@ -8,8 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
+    "sync": "node scripts/sync.js",
+    "postinstall": "npm run sync",
+    "predev": "npm run sync",
     "dev": "vite",
+    "prebuild": "npm run sync",
     "build": "npm run build --workspace=@new-app-ia/adjectif",
     "preview": "npm run preview --workspace=@new-app-ia/adjectif",
     "clean": "npm run clean --workspace=@new-app-ia/adjectif",
