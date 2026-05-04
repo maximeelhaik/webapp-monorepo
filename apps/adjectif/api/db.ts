@@ -1,4 +1,4 @@
-import { createKvDbHandler } from '@new-app-ia/core/server';
+import { createKvDbHandler } from './core/gemini';
 
 export default createKvDbHandler('default-template-key');
 
