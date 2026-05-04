@@ -1,5 +1,0 @@
-{
-  "buildCommand": "npm run build -w apps/adjectif",
-  "outputDirectory": "apps/adjectif/dist",
-  "framework": "vite"
-}
