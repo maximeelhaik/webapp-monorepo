@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Elegane';
+  src: url('./assets/fonts/elegane.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@theme {
+  --font-serif: "Elegane", serif;
+  --font-display: "Elegane", serif;
+  --font-sans: "Montserrat", sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    cursor: none !important;
+  }
+  body {
+    @apply bg-transparent text-[#1C1B1A] font-sans antialiased;
+    cursor: none !important;
+  }
+  
+  /* Custom premium scrollbar in 2026 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(140, 109, 49, 0.3);
+    border-radius: 999px;
+    transition: background 0.3s ease;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(140, 109, 49, 0.6);
+  }
+}
+
+*, *::before, *::after, html, body, input, button, a, textarea, [role="button"], span, div {
+  cursor: none !important;
+}
+

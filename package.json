@@ -1,0 +1,38 @@
+{
+  "name": "new-app-ia",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build -w apps/adjectif",
+    "preview": "npm run preview -w apps/adjectif",
+    "clean": "npm run clean -w apps/adjectif",
+    "lint": "npm run lint -w apps/adjectif",
+    "dev:world": "APP=world vite",
+    "build:world": "npm run build -w apps/world"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.0",
+    "@vercel/node": "^5.7.11",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "autoprefixer": "^10.4.21",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
