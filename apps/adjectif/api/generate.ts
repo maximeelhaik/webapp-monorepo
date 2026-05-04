@@ -1,4 +1,8 @@
-import { generateAiStream, GEMINI_MODEL, SYSTEM_INSTRUCTION, createAiStreamResponse } from "./core/gemini";
+import { generateAiStream, GEMINI_MODEL, createAiStreamResponse } from "./core/server";
+
+export const SYSTEM_INSTRUCTION = `Tu es un générateur de vocabulaire riche et inspirant. Propose 8 mots alternatifs pour l'expression fournie (très + adjectif).
+Réponds uniquement avec les 8 mots séparés par '|' sur une seule ligne. Aucun préambule, conclusion ni réflexion.
+Exemple: Mot1|Mot2|Mot3|Mot4|Mot5|Mot6|Mot7|Mot8`;
 
 export const config = {
   runtime: 'edge',
