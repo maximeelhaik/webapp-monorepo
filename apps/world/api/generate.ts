@@ -1,10 +1,13 @@
-import { generateAiStream, GEMINI_MODEL, createAiStreamResponse } from "./core/server";
+import { generateAiStream, GEMINI_MODEL, createAiStreamResponse, handleWarmup } from "./core/server";
 
 export const config = {
   runtime: 'edge',
 };
 
 export default async function handler(req: Request) {
+  const warmupResponse = await handleWarmup(req);
+  if (warmupResponse) return warmupResponse;
+
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 200,

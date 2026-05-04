@@ -13,6 +13,31 @@ export function getAiInstance() {
   return cachedAiInstance;
 }
 
+export async function handleWarmup(req: Request) {
+  try {
+    const cloned = req.clone();
+    const body = await cloned.json();
+    if (body && body.prompt === "ping") {
+      const aiInstance = getAiInstance();
+      if (aiInstance) {
+        await aiInstance.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: "p",
+          config: { maxOutputTokens: 1 }
+        }).catch(() => {});
+      }
+      return new Response(JSON.stringify({ status: "warmed" }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+  } catch (e) {}
+  return null;
+}
+
 export async function generateAiStream({
   contents,
   systemInstruction,

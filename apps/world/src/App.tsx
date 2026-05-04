@@ -108,6 +108,15 @@ export default function App() {
   const [wordIndex, setWordIndex] = useState(0);
   const [typingSpeed, setTypingSpeed] = useState(150);
 
+  // Pre-warming the Edge Function & Gemini API in the background
+  useEffect(() => {
+    fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'ping' }),
+    }).catch(() => {});
+  }, []);
+
   // Design Spell: Magnétisme du curseur sur le texte
   useEffect(() => {
     if (isTyping && inputRef.current) {
