@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "npm run build --workspace=@new-app-ia/core",
+    "postinstall": "npm run build --workspace=@new-app-ia/core && rm -rf apps/adjectif/node_modules/@new-app-ia/core apps/world/node_modules/@new-app-ia/core && mkdir -p apps/adjectif/node_modules/@new-app-ia/core apps/world/node_modules/@new-app-ia/core && cp -rf packages/core/* apps/adjectif/node_modules/@new-app-ia/core/ && cp -rf packages/core/* apps/world/node_modules/@new-app-ia/core/",
     "dev": "vite",
     "build": "npm run build --workspace=@new-app-ia/adjectif",
     "preview": "npm run preview --workspace=@new-app-ia/adjectif",
