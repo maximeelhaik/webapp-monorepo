@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 
 // --- TYPES ---
@@ -28,6 +28,7 @@ interface ConstellationProps {
     forceConnectTo?: string | null;
     parentsMap?: Record<string, string>;
     isLoading?: boolean;
+    nodeCount?: number;
 }
 
 // --- Constantes visuelles ---
@@ -62,6 +63,16 @@ const Node = React.memo(({
         nodePositionsRef.current.set(data.id, currentPos.current);
     }, [data.id, nodePositionsRef]);
 
+    const circleMatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const glowMatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const ringMatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const cross1MatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const cross2MatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const labelRef = useRef<HTMLSpanElement>(null);
+
+    // Opacité de base liée à la distance (ajustée pour être plus intense)
+    const baseOpacity = distance <= 1 ? 1 : Math.max(0.01, 0.6 / Math.pow(distance, 1.8));
+
     useFrame(({ camera, clock }) => {
         // Ralentissement de la translation (0.05 -> 0.02)
         currentPos.current.lerp(data.targetPos, 0.02);
@@ -77,13 +88,38 @@ const Node = React.memo(({
                 groupRef.current.scale.set(1, 1, 1);
             }
         }
+
+        // --- CALCUL DE L'OPACITÉ DYNAMIQUE SELON LE ZOOM ---
+        const zoom = (camera as THREE.OrthographicCamera).zoom;
+        // zoomFactor: 1 quand on est dézoomé au max (6), 0 quand on est au zoom par défaut (25)
+        const zoomFactor = 1 - THREE.MathUtils.smoothstep(zoom, 6, 25);
+        const currentOpacity = baseOpacity + (1.0 - baseOpacity) * zoomFactor;
+
+        // Mise à jour directe des matériaux pour la performance
+        if (circleMatRef.current) circleMatRef.current.opacity = currentOpacity;
+        if (glowMatRef.current) {
+            const glowBase = isActive ? 0.18 : (hovered ? 0.08 : 0.03);
+            glowMatRef.current.opacity = glowBase * currentOpacity;
+        }
+        if (ringMatRef.current) ringMatRef.current.opacity = 0.5 * currentOpacity;
+        if (cross1MatRef.current) cross1MatRef.current.opacity = 0.3 * currentOpacity;
+        if (cross2MatRef.current) cross2MatRef.current.opacity = 0.3 * currentOpacity;
+
+        // Mise à jour du label HTML (couleur et opacité)
+        if (labelRef.current) {
+            if (!isActive && distance > 1) {
+                labelRef.current.style.color = `rgba(232, 220, 200, ${currentOpacity})`;
+            } else {
+                labelRef.current.style.color = isActive ? '#F5A623' : '#f2f2f2';
+            }
+        }
     });
 
     const nodeR  = isActive ? ACTIVE_RADIUS : NODE_RADIUS;
     const hitR   = isActive ? HIT_RADIUS_ACTIVE : HIT_RADIUS_NODE;
     const glowR  = nodeR * 2.4;
 
-    const opacity = distance <= 1 ? 1 : Math.max(0.05, 1 / Math.pow(distance, 1.35));
+    const opacity = distance <= 1 ? 1 : Math.max(0.05, 0.7 / Math.pow(distance, 1.5));
     const formattedLabel = data.label.charAt(0).toUpperCase() + data.label.slice(1).toLowerCase();
 
     return (
@@ -100,9 +136,10 @@ const Node = React.memo(({
             <mesh raycast={() => null}>
                 <circleGeometry args={[glowR, 32]} />
                 <meshBasicMaterial
-                    color="#ffffff"
+                    ref={glowMatRef}
+                    color={isActive ? '#F5A623' : '#ffffff'}
                     transparent
-                    opacity={(isActive ? 0.15 : (hovered ? 0.08 : 0.03)) * opacity}
+                    opacity={(isActive ? 0.18 : (hovered ? 0.08 : 0.03)) * baseOpacity}
                     blending={THREE.AdditiveBlending}
                     depthWrite={false}
                     side={THREE.DoubleSide}
@@ -112,44 +149,70 @@ const Node = React.memo(({
             <mesh raycast={() => null}>
                 <circleGeometry args={[nodeR, 4]} />
                 <meshBasicMaterial
-                    color={isActive ? '#ffffff' : (hovered ? '#ffffff' : '#f2f2f2')}
+                    ref={circleMatRef}
+                    color={isActive ? '#F5A623' : (hovered ? '#ffffff' : '#e8dcc8')}
                     transparent
-                    opacity={opacity}
+                    opacity={baseOpacity}
                     side={THREE.DoubleSide}
                 />
             </mesh>
+
+            {/* Amber hover ring for satellite nodes */}
+            {!isActive && hovered && (
+                <mesh raycast={() => null}>
+                    <ringGeometry args={[nodeR * 1.6, nodeR * 1.9, 24]} />
+                    <meshBasicMaterial
+                        ref={ringMatRef}
+                        color="#F5A623"
+                        transparent
+                        opacity={0.5 * baseOpacity}
+                        side={THREE.DoubleSide}
+                        blending={THREE.AdditiveBlending}
+                        depthWrite={false}
+                    />
+                </mesh>
+            )}
             
             {/* Precision Crosshair on Node */}
             {(isActive || hovered) && (
                 <group rotation={[0, 0, Math.PI / 4]}>
                     <mesh raycast={() => null}>
                         <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial color="#ffffff" transparent opacity={0.3 * opacity} />
+                        <meshBasicMaterial ref={cross1MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} />
                     </mesh>
                     <mesh raycast={() => null} rotation={[0, 0, Math.PI / 2]}>
                         <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial color="#ffffff" transparent opacity={0.3 * opacity} />
+                        <meshBasicMaterial ref={cross2MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} />
                     </mesh>
                 </group>
             )}
 
             <Html center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
                 <span
+                    ref={labelRef}
                     style={{
                         display: 'block',
                         pointerEvents: 'none',
                         userSelect: 'none',
-                        color: isActive ? '#f2f2f2' : 'rgba(242, 242, 242, 0.7)',
-                        fontSize: isActive ? '32px' : '15px',
-                        fontWeight: isActive ? 600 : 400,
+                        color: isActive
+                            ? '#F5A623'
+                            : distance <= 1
+                                ? '#f2f2f2'
+                                : `rgba(232, 220, 200, ${baseOpacity})`,
+                        fontSize: distance === 0 ? '32px' : (distance === 1 ? '18px' : '11px'),
+                        fontWeight: distance <= 1 ? 600 : 400,
                         fontFamily: "'Space Grotesk', sans-serif",
-                        letterSpacing: isActive ? '0.05em' : '0.1em',
+                        letterSpacing: distance <= 1 ? '0.15em' : '0.05em',
                         textTransform: 'uppercase',
-                        textShadow: isActive ? '0 0 15px rgba(255,255,255,0.3)' : 'none',
-                        transform: `translate3d(0, ${isActive ? 55 : 28}px, 0)`,
+                        textShadow: isActive
+                            ? '0 0 20px rgba(245,166,35,0.6)'
+                            : distance <= 1
+                                ? '0 0 15px rgba(255,255,255,0.2)'
+                                : 'none',
+                        transform: `translate3d(0, ${distance === 0 ? 55 : (distance === 1 ? 35 : 22)}px, 0)`,
                         whiteSpace: 'nowrap',
-                        opacity,
-                        transition: 'all 0.4s cubic-bezier(0.2, 0, 0, 1)',
+                        opacity: 1,
+                        transition: 'all 0.3s ease-out'
                     }}
                 >
                     {formattedLabel}
@@ -176,10 +239,13 @@ const Edge = React.memo(({
     distance?: number;
 }) => {
     const meshRef = useRef<THREE.Mesh>(null);
+    const matRef = useRef<THREE.MeshBasicMaterial>(null);
 
     const progress = useRef(0);
 
-    useFrame((_, delta) => {
+    const baseOpacity = distance <= 1 ? 1 : Math.max(0.01, 0.6 / Math.pow(distance, 1.8));
+
+    useFrame(({ camera }, delta) => {
         const p1 = nodePositionsRef.current.get(sourceId);
         const p2 = nodePositionsRef.current.get(targetId);
         
@@ -205,17 +271,25 @@ const Edge = React.memo(({
             );
             meshRef.current.scale.set(1, currentLength, 1);
         }
-    });
 
-    const edgeOpacity = (distance <= 1 ? 1 : Math.max(0.05, 1 / Math.pow(distance, 1.35))) * 0.4;
+        // --- CALCUL DE L'OPACITÉ DYNAMIQUE SELON LE ZOOM ---
+        const zoom = (camera as THREE.OrthographicCamera).zoom;
+        const zoomFactor = 1 - THREE.MathUtils.smoothstep(zoom, 6, 25);
+        const currentOpacity = baseOpacity + (1.0 - baseOpacity) * zoomFactor;
+
+        if (matRef.current) {
+            matRef.current.opacity = currentOpacity * (distance <= 1 ? 0.7 : 0.9);
+        }
+    });
 
     return (
         <mesh ref={meshRef}>
-            <boxGeometry args={[0.06, 1, 0.06]} />
+            <boxGeometry args={[0.04, 1, 0.04]} />
             <meshBasicMaterial
-                color="#ffffff"
+                ref={matRef}
+                color={distance <= 1 ? '#F5C878' : '#f0e8d8'}
                 transparent
-                opacity={edgeOpacity}
+                opacity={baseOpacity * (distance <= 1 ? 0.7 : 0.9)}
                 depthWrite={false}
                 blending={THREE.AdditiveBlending}
             />
@@ -223,20 +297,89 @@ const Edge = React.memo(({
     );
 });
 
+// --- Helpers pour le positionnement de la caméra ---
+
+/**
+ * Calcule la direction de vue optimale (normale au plan de plus grand étalement)
+ * via une approximation de PCA (Principal Component Analysis).
+ */
+function getBestViewDirection(neighbors: THREE.Vector3[]): THREE.Vector3 {
+    if (neighbors.length < 2) return new THREE.Vector3(0, 0, 1);
+
+    // 1. Matrice de covariance (relative au centre)
+    let mxx = 0, mxy = 0, mxz = 0, myy = 0, myz = 0, mzz = 0;
+    neighbors.forEach(v => {
+        mxx += v.x * v.x; mxy += v.x * v.y; mxz += v.x * v.z;
+        myy += v.y * v.y; myz += v.y * v.z; mzz += v.z * v.z;
+    });
+
+    const matrix = [
+        [mxx, mxy, mxz],
+        [mxy, myy, myz],
+        [mxz, myz, mzz]
+    ];
+
+    // 2. Trouver le premier vecteur propre (direction de plus grand étalement) par itération
+    const findLargestEv = (m: number[][]) => {
+        let v = new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize();
+        for (let i = 0; i < 10; i++) {
+            let nv = new THREE.Vector3(
+                v.x * m[0][0] + v.y * m[0][1] + v.z * m[0][2],
+                v.x * m[1][0] + v.y * m[1][1] + v.z * m[1][2],
+                v.x * m[2][0] + v.y * m[2][1] + v.z * m[2][2]
+            );
+            if (nv.length() === 0) break;
+            v = nv.normalize();
+        }
+        return v;
+    };
+
+    const v1 = findLargestEv(matrix);
+
+    // 3. Déflation de la matrice pour trouver la 2ème direction principale
+    const lambda1 = v1.x * (v1.x * mxx + v1.y * mxy + v1.z * mxz) +
+                    v1.y * (v1.x * mxy + v1.y * myy + v1.z * myz) +
+                    v1.z * (v1.x * mxz + v1.y * myz + v1.z * mzz);
+
+    const m2 = [
+        [matrix[0][0] - lambda1 * v1.x * v1.x, matrix[0][1] - lambda1 * v1.x * v1.y, matrix[0][2] - lambda1 * v1.x * v1.z],
+        [matrix[1][0] - lambda1 * v1.y * v1.x, matrix[1][1] - lambda1 * v1.y * v1.y, matrix[1][2] - lambda1 * v1.y * v1.z],
+        [matrix[2][0] - lambda1 * v1.z * v1.x, matrix[2][1] - lambda1 * v1.z * v1.y, matrix[2][2] - lambda1 * v1.z * v1.z]
+    ];
+
+    const v2 = findLargestEv(m2);
+
+    // 4. La direction optimale est la normale au plan formé par v1 et v2
+    // C'est l'axe selon lequel l'étalement est minimal, donc on voit le maximum d'étalement sur l'écran.
+    let bestDir = new THREE.Vector3().crossVectors(v1, v2).normalize();
+    
+    // Si v1 et v2 sont colinéaires (structure 1D), v2 sera nul. On fallback sur n'importe quel axe ortho.
+    if (bestDir.length() < 0.1) {
+        const arbitrary = Math.abs(v1.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+        bestDir.crossVectors(v1, arbitrary).normalize();
+    }
+
+    return bestDir;
+}
+
 // --- Scène principale ---
 const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, parentsMap = {}, isLoading }: ConstellationProps) => {
+    const { camera } = useThree();
     const [nodes, setNodes] = useState<Map<string, NodeData>>(new Map());
     const [edges, setEdges] = useState<Map<string, EdgeData>>(new Map());
     const nodePositionsRef = useRef(new Map<string, THREE.Vector3>());
     const groupRef = useRef<THREE.Group>(null);
+    const targetCameraPos = useRef(new THREE.Vector3(0, 0, 500));
+    const isRotating = useRef(false);
 
     useEffect(() => {
         const lowerCenter = centerWord.toLowerCase();
+        let updatedNodes: Map<string, NodeData> = new Map();
 
+        // 1. Mise à jour de la topologie (Nodes & Edges)
         setNodes(prevNodes => {
             const newNodes = new Map(prevNodes);
 
-            // Helper de repositionnement récursif
             const shiftVisited = new Set<string>();
             const shiftBranch = (id: string, d: THREE.Vector3, targetParentId?: string) => {
                 if (shiftVisited.has(id)) return;
@@ -274,18 +417,11 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                     const radius = 45; 
                     const phi = Math.acos(2 * Math.random() - 1);
                     const theta = Math.random() * Math.PI * 2;
-                    targetPos.set(
-                        radius * Math.sin(phi) * Math.cos(theta),
-                        radius * Math.sin(phi) * Math.sin(theta),
-                        radius * Math.cos(phi)
-                    );
+                    targetPos.set(radius * Math.sin(phi) * Math.cos(theta), radius * Math.sin(phi) * Math.sin(theta), radius * Math.cos(phi));
                     startPos.copy(targetPos).multiplyScalar(0.5);
                 }
 
-                newNodes.set(lowerCenter, {
-                    id: lowerCenter, label: centerWord,
-                    startPos, targetPos, parentId
-                });
+                newNodes.set(lowerCenter, { id: lowerCenter, label: centerWord, startPos, targetPos, parentId });
             } else if (forceConnectTo) {
                 const node = newNodes.get(lowerCenter)!;
                 const lowerParent = forceConnectTo.toLowerCase();
@@ -309,9 +445,7 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
 
             const activeNode = newNodes.get(lowerCenter)!;
             const existingPositions = Array.from(newNodes.values()).map(n => n.targetPos);
-            const pushVector = activeNode.targetPos.length() > 0
-                ? activeNode.targetPos.clone().normalize()
-                : new THREE.Vector3(0, 1, 0);
+            const pushVector = activeNode.targetPos.length() > 0 ? activeNode.targetPos.clone().normalize() : new THREE.Vector3(0, 1, 0);
 
             relatedWords.forEach(word => {
                 const lowerWord = word.toLowerCase();
@@ -319,165 +453,97 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                     const radius = 10 + Math.random() * 4;
                     let bestPos = new THREE.Vector3();
                     let maxMinDist = -1;
-                    let attempts = 0;
                     for (let i = 0; i < 8; i++) {
-                        attempts++;
-                        if (attempts > 100) break;
-
-                        const phi   = Math.acos(2 * Math.random() - 1);
+                        const phi = Math.acos(2 * Math.random() - 1);
                         const theta = Math.random() * Math.PI * 2;
-                        const candidateOffset = new THREE.Vector3(
-                            radius * Math.sin(phi) * Math.cos(theta),
-                            radius * Math.sin(phi) * Math.sin(theta),
-                            radius * Math.cos(phi),
-                        );
-                        if (candidateOffset.dot(pushVector) < -0.2 && activeNode.targetPos.length() > 5) {
-                            i--; continue;
-                        }
+                        const candidateOffset = new THREE.Vector3(radius * Math.sin(phi) * Math.cos(theta), radius * Math.sin(phi) * Math.sin(theta), radius * Math.cos(phi));
+                        if (candidateOffset.dot(pushVector) < -0.2 && activeNode.targetPos.length() > 5) { i--; continue; }
                         const candidatePos = activeNode.targetPos.clone().add(candidateOffset);
                         let minDist = Infinity;
                         existingPositions.forEach(p => { minDist = Math.min(minDist, candidatePos.distanceTo(p)); });
                         if (minDist > maxMinDist) { maxMinDist = minDist; bestPos = candidatePos; }
                     }
-
-                    newNodes.set(lowerWord, {
-                        id: lowerWord, label: word,
-                        startPos: activeNode.targetPos.clone(),
-                        targetPos: bestPos,
-                        parentId: lowerCenter
-                    });
+                    newNodes.set(lowerWord, { id: lowerWord, label: word, startPos: activeNode.targetPos.clone(), targetPos: bestPos, parentId: lowerCenter });
                     existingPositions.push(bestPos);
-                } else if (lowerWord !== lowerCenter && lowerWord !== 'cosmos') {
-                    // Resserrage : Le mot existe déjà mais est renvoyé comme lié au centre actuel
-                    const node = newNodes.get(lowerWord)!;
-                    if (node.parentId !== lowerCenter) {
-                        const oldTarget = node.targetPos.clone();
-                        const radius = 12; // Un peu plus d'espace pour les enfants que pour les ponts
-                        const phi = Math.acos(2 * Math.random() - 1);
-                        const theta = Math.random() * Math.PI * 2;
-                        const newTarget = new THREE.Vector3(
-                            activeNode.targetPos.x + radius * Math.sin(phi) * Math.cos(theta),
-                            activeNode.targetPos.y + radius * Math.sin(phi) * Math.sin(theta),
-                            activeNode.targetPos.z + radius * Math.cos(phi)
-                        );
-                        const delta = new THREE.Vector3().subVectors(newTarget, oldTarget);
-                        shiftBranch(lowerWord, delta, lowerCenter);
-                    }
                 }
             });
 
-            // --- ÉTAPE DE RELAXATION GÉNÉRALE (Constraint Satisfaction) ---
-            // On s'assure que les liens sont de taille homogène et que les nœuds ne se chevauchent pas.
+            // Relaxation simplifiée
             const allNodesList = Array.from(newNodes.values());
-            const TARGET_DIST = 14; // Taille idéale d'un lien
-            const MIN_NODE_DIST = 10; // Distance minimale entre deux nœuds quelconques
-
             for (let iter = 0; iter < 10; iter++) {
-                // 1. Équilibrage des Liens (Attraction/Répulsion sur les arrêtes)
-                const tempEdges: [string, string][] = [];
-                edges.forEach(e => tempEdges.push([e.source, e.target]));
-                relatedWords.forEach(w => tempEdges.push([lowerCenter, w.toLowerCase()]));
-                if (forceConnectTo) tempEdges.push([forceConnectTo.toLowerCase(), lowerCenter]);
-
-                tempEdges.forEach(([sId, tId]) => {
-                    const s = newNodes.get(sId);
-                    const t = newNodes.get(tId);
-                    if (!s || !t) return;
-                    const dist = s.targetPos.distanceTo(t.targetPos);
-                    
-                    // Si l'écart à la distance idéale est trop grand, on ajuste
-                    if (Math.abs(dist - TARGET_DIST) > 1) {
-                        const dir = new THREE.Vector3().subVectors(s.targetPos, t.targetPos).normalize();
-                        if (dir.length() === 0) dir.set(Math.random(), Math.random(), Math.random()).normalize();
-                        
-                        const factor = (dist - TARGET_DIST) * 0.2;
-                        const move = dir.clone().multiplyScalar(factor);
-                        
-                        // Le fils bouge plus que le parent pour garder une hiérarchie stable
-                        t.targetPos.add(move);
-                        s.targetPos.sub(move.multiplyScalar(0.1));
-                    }
-                });
-
-                // 2. Répulsion Globale : On évite les collisions entre nœuds non-liés
-                for (let i = 0; i < allNodesList.length; i++) {
-                    const n1 = allNodesList[i];
-                    for (let j = i + 1; j < allNodesList.length; j++) {
-                        const n2 = allNodesList[j];
-                        const dist = n1.targetPos.distanceTo(n2.targetPos);
-                        if (dist < MIN_NODE_DIST) {
-                            const dir = new THREE.Vector3().subVectors(n1.targetPos, n2.targetPos).normalize();
-                            if (dir.length() === 0) dir.set(Math.random(), Math.random(), Math.random()).normalize();
-                            const pushFactor = (MIN_NODE_DIST - dist) * 0.4;
-                            const push = dir.multiplyScalar(pushFactor);
-                            n1.targetPos.add(push);
-                            n2.targetPos.sub(push);
+                allNodesList.forEach(n => {
+                    if (n.parentId) {
+                        const p = newNodes.get(n.parentId);
+                        if (!p) return;
+                        const dist = n.targetPos.distanceTo(p.targetPos);
+                        if (Math.abs(dist - 14) > 1) {
+                            const dir = new THREE.Vector3().subVectors(n.targetPos, p.targetPos).normalize();
+                            const move = dir.multiplyScalar((dist - 14) * 0.2);
+                            n.targetPos.sub(move);
                         }
                     }
-                }
+                });
             }
 
-            // BFS distances
+            // BFS Distances
             newNodes.forEach(n => { n.distance = 99; });
-            const allEdges: [string, string][] = [];
-            
-            // On utilise les liens actuels + le nouveau lien forcé + les nouveaux liens de streaming
-            edges.forEach(e => allEdges.push([e.source, e.target]));
-            if (forceConnectTo) allEdges.push([forceConnectTo.toLowerCase(), lowerCenter]);
-            relatedWords.forEach(w => allEdges.push([lowerCenter, w.toLowerCase()]));
-
             const adj = new Map<string, string[]>();
-            allEdges.forEach(([s, t]) => {
-                if (!adj.has(s)) adj.set(s, []);
-                if (!adj.has(t)) adj.set(t, []);
-                adj.get(s)!.push(t);
-                adj.get(t)!.push(s);
+            newNodes.forEach(n => {
+                if (n.parentId) {
+                    const s = n.parentId; const t = n.id;
+                    if (!adj.has(s)) adj.set(s, []); if (!adj.has(t)) adj.set(t, []);
+                    adj.get(s)!.push(t); adj.get(t)!.push(s);
+                }
             });
             const queue: [string, number][] = [[lowerCenter, 0]];
             const visited = new Set<string>([lowerCenter]);
             while (queue.length > 0) {
-                const [curr, dist] = queue.shift()!;
+                const [curr, d] = queue.shift()!;
                 const n = newNodes.get(curr);
-                if (n) n.distance = dist;
+                if (n) n.distance = d;
                 (adj.get(curr) || []).forEach(nb => {
-                    if (!visited.has(nb)) { visited.add(nb); queue.push([nb, dist + 1]); }
+                    if (!visited.has(nb)) { visited.add(nb); queue.push([nb, d + 1]); }
                 });
             }
+
+            updatedNodes = newNodes;
             return newNodes;
         });
 
         setEdges(prev => {
             const next = new Map(prev);
-            const lowerCenter = centerWord.toLowerCase();
-
             if (forceConnectTo) {
-                const lowerParent = forceConnectTo.toLowerCase();
-                const id = [lowerCenter, lowerParent].sort().join('-');
-                if (!next.has(id)) {
-                    next.set(id, { 
-                        id, 
-                        source: lowerParent, 
-                        target: lowerCenter,
-                        growFrom: lowerCenter // Part du nouveau mot vers le précédent
-                    });
-                }
+                const lp = forceConnectTo.toLowerCase();
+                const id = [lowerCenter, lp].sort().join('-');
+                if (!next.has(id)) next.set(id, { id, source: lp, target: lowerCenter, growFrom: lowerCenter });
             }
-
-            relatedWords.forEach(word => {
-                const lowerWord = word.toLowerCase();
-                const id = [lowerCenter, lowerWord].sort().join('-');
-                if (!next.has(id)) {
-                    next.set(id, { 
-                        id, 
-                        source: lowerCenter, 
-                        target: lowerWord,
-                        growFrom: lowerCenter // Part du centre vers le fils
-                    });
-                }
+            relatedWords.forEach(w => {
+                const lw = w.toLowerCase();
+                const id = [lowerCenter, lw].sort().join('-');
+                if (!next.has(id)) next.set(id, { id, source: lowerCenter, target: lw, growFrom: lowerCenter });
             });
             return next;
         });
-    }, [centerWord, relatedWords, forceConnectTo]);
+
+        // 2. Calcul de la position optimale de la caméra (PCA)
+        const centerNode = updatedNodes.get(lowerCenter);
+        if (centerNode) {
+            const neighbors: THREE.Vector3[] = [];
+            updatedNodes.forEach(n => {
+                if (n.parentId === lowerCenter || centerNode.parentId === n.id) {
+                    neighbors.push(new THREE.Vector3().subVectors(n.targetPos, centerNode.targetPos));
+                }
+            });
+            if (neighbors.length >= 2) {
+                const bestDir = getBestViewDirection(neighbors);
+                const currentDir = camera.position.clone().normalize();
+                if (bestDir.dot(currentDir) < 0) bestDir.multiplyScalar(-1);
+                if (Math.abs(bestDir.y) > 0.95) bestDir.add(new THREE.Vector3(0.1, 0, 0)).normalize();
+                targetCameraPos.current.copy(bestDir.multiplyScalar(500));
+                isRotating.current = true;
+            }
+        }
+    }, [centerWord, relatedWords, forceConnectTo, parentsMap, camera]);
 
     const targetGroupOffset = useMemo(() => {
         const n = nodes.get(centerWord.toLowerCase());
@@ -485,8 +551,19 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
     }, [centerWord, nodes]);
 
     useFrame(() => {
-        // Ralentissement de la translation caméra (0.05 -> 0.02)
+        // Translation du groupe (pour centrer le mot actif)
         if (groupRef.current) groupRef.current.position.lerp(targetGroupOffset, 0.02);
+
+        // Rotation de la caméra vers la position optimale
+        if (isRotating.current) {
+            camera.position.lerp(targetCameraPos.current, 0.02);
+            camera.lookAt(0, 0, 0);
+            
+            // Si on est assez proche, on arrête l'auto-rotation
+            if (camera.position.distanceTo(targetCameraPos.current) < 1) {
+                isRotating.current = false;
+            }
+        }
     });
 
     return (
@@ -560,12 +637,7 @@ export default function Constellation3DV2(props: ConstellationProps) {
             <div className="crosshair-marker crosshair-bl" />
             <div className="crosshair-marker crosshair-br" />
 
-            {/* Precision Coordinates Overlay */}
-            <div className="absolute bottom-10 right-10 font-mono text-[10px] text-lunar/30 pointer-events-none flex flex-col items-end gap-1 uppercase tracking-widest">
-                <span>SYSTEM_STATUS: NOMINAL</span>
-                <span>COORD_X: {props.centerWord.toUpperCase()}</span>
-                <span>RECON_ACTIVE: TRUE</span>
-            </div>
+            {/* Precision Coordinates Overlay — removed (moved to App.tsx footer) */}
         </div>
     );
 }
