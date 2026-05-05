@@ -29,7 +29,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (!KV_URL || !KV_TOKEN) {
-    console.warn("[TEMPLATE BACK] Variables d'environnement KV manquantes.");
     return res.status(200).json({ warning: "KV non configuré localement", data: [] });
   }
 
@@ -74,7 +73,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(405).json({ error: "Méthode non autorisée" });
   } catch (error: any) {
-    console.error("[TEMPLATE BACK] Erreur BDD:", error);
     return res.status(500).json({ error: error.message });
   }
 }

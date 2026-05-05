@@ -49,7 +49,7 @@ export default async function handler(req: Request) {
       contents: `Traduis le mot suivant : ${prompt}`,
       systemInstruction: `Tu es un traducteur expert. Traduis le mot fourni dans 20 langues différentes (Anglais, Espagnol, Allemand, Italien, Portugais, Chinois, Japonais, Russe, Arabe, Coréen, Néerlandais, Suédois, Grec, Turc, Polonais, Hindi, Vietnamien, Thaï, Indonésien, Tchèque). Réponds uniquement avec les 20 traductions séparées par '|' sur une seule ligne. Aucun préambule, conclusion ni réflexion. Exemple: Word1|Word2|Word3|Word4|Word5|Word6|Word7|Word8|Word9|Word10|Word11|Word12|Word13|Word14|Word15|Word16|Word17|Word18|Word19|Word20`,
       temperature: 0.2,
-      maxOutputTokens: 400,
+      maxOutputTokens: 800,
     })
   );
 }

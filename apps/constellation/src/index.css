@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-mono: "JetBrains Mono", monospace;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-sans: "Space Grotesk", sans-serif;
+  
+  --color-lunar: #f2f2f2;
+  --color-void: #000000;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    cursor: none !important;
+  }
+  body {
+    @apply bg-void text-lunar font-sans antialiased;
+    cursor: none !important;
+    overflow: hidden;
+  }
+  
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+*, *::before, *::after, html, body, input, button, a, textarea, [role="button"], span, div {
+  cursor: none !important;
+}
+
+/* Technical Overlays */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.08;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+.point-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.crosshair-marker {
+  position: fixed;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  z-index: 101;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.crosshair-tl { top: 30px; left: 30px; border-top: 1px solid currentColor; border-left: 1px solid currentColor; }
+.crosshair-tr { top: 30px; right: 30px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; }
+.crosshair-bl { bottom: 30px; left: 30px; border-bottom: 1px solid currentColor; border-left: 1px solid currentColor; }
+.crosshair-br { bottom: 30px; right: 30px; border-bottom: 1px solid currentColor; border-right: 1px solid currentColor; }
+

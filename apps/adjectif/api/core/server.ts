@@ -1,6 +1,7 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+export const getModel = () => process.env.GEMINI_MODEL || GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
 let cachedAiInstance: GoogleGenAI | null = null;
 
@@ -21,10 +22,10 @@ export async function handleWarmup(req: Request) {
       const aiInstance = getAiInstance();
       if (aiInstance) {
         await aiInstance.models.generateContent({
-          model: GEMINI_MODEL,
+          model: getModel(),
           contents: "p",
           config: { maxOutputTokens: 1 }
-        }).catch(() => {});
+        }).catch(() => { });
       }
       return new Response(JSON.stringify({ status: "warmed" }), {
         status: 200,
@@ -34,7 +35,7 @@ export async function handleWarmup(req: Request) {
         },
       });
     }
-  } catch (e) {}
+  } catch (e) { }
   return null;
 }
 
@@ -55,27 +56,42 @@ export async function generateAiStream({
   }
   let response;
   let retries = 0;
-  const maxRetries = 2;
+  const maxRetries = 6;
 
   while (retries < maxRetries) {
     try {
+      const modelName = getModel();
+
       response = await aiInstance.models.generateContentStream({
-        model: GEMINI_MODEL,
+        model: modelName,
         contents,
         config: {
           systemInstruction,
           temperature,
           maxOutputTokens,
+          // Réduire les filtres de sécurité peut parfois aider à éviter des délais/surcharges inutiles
+          // pour des tâches sémantiques simples comme celle-ci.
+          safetySettings: [
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          ]
         }
       });
       break;
     } catch (e: any) {
       retries++;
-      const is503 = e?.status === 503 || e?.statusCode === 503 || (e?.message && e.message.includes("503"));
+      const is503 = e?.status === 503 || e?.statusCode === 503 ||
+        (e?.message && (e.message.includes("503") || e.message.includes("high demand") || e.message.includes("UNAVAILABLE")));
+
       if (is503 && retries < maxRetries) {
-        await new Promise(r => setTimeout(r, 800));
+        // Backoff exponentiel plus robuste : 2s, 4s, 8s, 16s, 32s + jitter
+        const delay = Math.pow(2, retries) * 1000 + Math.random() * 1000;
+        await new Promise(r => setTimeout(r, delay));
         continue;
       }
+
       throw e;
     }
   }
@@ -114,7 +130,6 @@ export function createKvDbHandler(defaultKey: string) {
     }
 
     if (!KV_URL || !KV_TOKEN) {
-      console.warn("[TEMPLATE BACK] Variables d'environnement KV manquantes.");
       return res.status(200).json({ warning: "KV non configuré localement", data: [] });
     }
 
@@ -154,25 +169,41 @@ export function createKvDbHandler(defaultKey: string) {
 
       return res.status(405).json({ error: "Méthode non autorisée" });
     } catch (error: any) {
-      console.error("[TEMPLATE BACK] Erreur BDD:", error);
       return res.status(500).json({ error: error.message });
     }
   };
 }
 
 export async function createAiStreamResponse(responseStreamPromise: Promise<any>) {
+  const startTime = Date.now();
   const response = await responseStreamPromise;
+
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
       try {
+        let chunkCount = 0;
+
         for await (const chunk of response) {
-          if (chunk.text) {
-            controller.enqueue(encoder.encode(chunk.text));
+          chunkCount++;
+          let text = "";
+          try {
+            // Dans le nouveau SDK @google/genai, chunk.text est souvent une propriété directe
+            // ou une méthode selon la structure.
+            text = (typeof chunk.text === 'function') ? chunk.text() : (chunk.text || "");
+
+            // Si toujours vide, on fouille dans les candidats
+            if (!text && chunk.candidates?.[0]?.content?.parts?.[0]?.text) {
+              text = chunk.candidates[0].content.parts[0].text;
+            }
+          } catch (e) {
+          }
+
+          if (text) {
+            controller.enqueue(encoder.encode(text));
           }
         }
       } catch (error: any) {
-        console.error("[SERVER STREAM] Error in iterator:", error);
         controller.enqueue(encoder.encode(`---ERROR---${error.message || "Erreur AI"}`));
       } finally {
         controller.close();
@@ -183,11 +214,13 @@ export async function createAiStreamResponse(responseStreamPromise: Promise<any>
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
+      'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       'X-Content-Type-Options': 'nosniff',
       'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
-      'X-Model-Used': GEMINI_MODEL,
+      'X-Model-Used': getModel(),
     },
   });
 }

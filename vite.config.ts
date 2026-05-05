@@ -6,6 +6,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import adjectifHandler from './apps/adjectif/api/generate';
 import worldHandler from './apps/world/api/generate';
+import constellationHandler from './apps/constellation/api/generate';
+import constellationConnectHandler from './apps/constellation/api/connect';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +19,10 @@ function apiMiddlewarePlugin() {
     name: 'api-middleware',
     configureServer(server: any) {
       server.middlewares.use(async (req: any, res: any, next: any) => {
-        if (req.url?.startsWith('/api/generate')) {
+        const isGenerate = req.url?.startsWith('/api/generate');
+        const isConnect = req.url?.startsWith('/api/connect');
+
+        if (isGenerate || isConnect) {
           let body = {};
           if (req.method === 'POST') {
             const buffers = [];
@@ -37,8 +42,12 @@ function apiMiddlewarePlugin() {
           });
 
           let response;
-          if ((body as any).app === 'world') {
+          if (isConnect) {
+            response = await constellationConnectHandler(webReq);
+          } else if ((body as any).app === 'world') {
             response = await worldHandler(webReq);
+          } else if ((body as any).app === 'constellation') {
+            response = await constellationHandler(webReq);
           } else {
             response = await adjectifHandler(webReq);
           }

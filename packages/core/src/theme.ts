@@ -48,8 +48,8 @@ export const THEMES: Record<string, ThemeConfig> = {
     typography: {
       display: '"Elegane", serif',
       body: '"Montserrat", sans-serif',
-      inputSize: 'clamp(3rem, 8vw, 10rem)',
-      resultSize: 'clamp(2rem, 5vw, 6rem)',
+      inputSize: 'clamp(1.8rem, 6vw, 10rem)',
+      resultSize: 'clamp(1.5rem, 4vw, 6rem)',
       headingTransform: 'uppercase',
       headingTracking: '0.5em',
     },

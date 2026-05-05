@@ -12,9 +12,21 @@ export default function App() {
   const [cursorType, setCursorType] = useState<'default' | 'pointer' | 'text'>('default');
   const inputRef = useRef<HTMLInputElement>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [selectionStart, setSelectionStart] = useState(0);
+  const [isInputFocused, setIsInputFocused] = useState(false);
 
+  const updateCaretPosition = () => {
+    if (inputRef.current) {
+      setSelectionStart(inputRef.current.selectionStart || 0);
+    }
+  };
+
+
+  const isFinePointer = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
 
   useEffect(() => {
+    if (!isFinePointer) return;
+
     const updateCursor = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target) {
@@ -50,9 +62,6 @@ export default function App() {
     };
 
     const mouseMove = (e: MouseEvent) => {
-      // Sortir du mode typing dès que l'utilisateur bouge la souris
-      if (isTyping) setIsTyping(false);
-
       let magneticX = e.clientX;
       let magneticY = e.clientY;
       
@@ -86,7 +95,7 @@ export default function App() {
       window.removeEventListener("mousemove", mouseMove);
       window.removeEventListener("mouseover", mouseOver);
     };
-  }, []);
+  }, [isFinePointer]);
 
   const [word, setWord] = useState('');
   const [loading, setLoading] = useState(false);
@@ -117,33 +126,9 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  // Design Spell: Magnétisme du curseur sur le texte
   useEffect(() => {
-    if (isTyping && inputRef.current) {
-      const inputEl = inputRef.current;
-      const rect = inputEl.getBoundingClientRect();
-      const style = window.getComputedStyle(inputEl);
-      const font = `${style.fontWeight || 'normal'} ${style.fontSize} ${style.fontFamily}`;
-      
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      let textWidth = 0;
-      if (context) {
-        context.font = font;
-        // On mesure la largeur du texte actuel (ou du placeholder)
-        textWidth = context.measureText(inputEl.value || inputEl.placeholder).width;
-      }
-      
-      // Position exacte du caret (le texte est centré)
-      const snapX = rect.left + (rect.width / 2) + (textWidth / 2) + 2;
-      const snapY = rect.top + (rect.height / 2);
-      
-      // Animation fluide vers la position du texte
-      animate(cursorX, snapX, { type: "spring", damping: 25, stiffness: 250, mass: 0.5 });
-      animate(cursorY, snapY, { type: "spring", damping: 25, stiffness: 250, mass: 0.5 });
-      setCursorType('text');
-    }
-  }, [word, placeholder, isTyping, cursorX, cursorY]);
+    updateCaretPosition();
+  }, [word]);
 
   useEffect(() => {
     if (word !== '') {
@@ -288,15 +273,37 @@ export default function App() {
     fontFamily: 'var(--theme-font-body)',
   } as any;
 
+  let caretLeft = '50%';
+  let caretHeight = 38;
+  if (inputRef.current) {
+    const style = window.getComputedStyle(inputRef.current);
+    const font = `${style.fontWeight || 'normal'} ${style.fontSize} ${style.fontFamily}`;
+    caretHeight = parseFloat(style.fontSize) || 38;
+    
+    if (inputRef.current.value) {
+      const text = inputRef.current.value;
+      const textBefore = text.substring(0, selectionStart);
+
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.font = font;
+        const totalTextWidth = context.measureText(text).width;
+        const textBeforeCaretWidth = context.measureText(textBefore).width;
+        caretLeft = `calc(50% - ${totalTextWidth / 2}px + ${textBeforeCaretWidth}px)`;
+      }
+    }
+  }
+
   return (
     <motion.div 
-      className="min-h-screen w-full flex flex-col items-center px-6 py-16 md:px-16 md:py-24 transition-colors duration-1000 selection:bg-[var(--theme-primary)] selection:text-[var(--theme-bg)]"
+      className="min-h-[100dvh] w-full flex flex-col items-center px-[clamp(1rem,4vw,2.5rem)] py-[clamp(1.5rem,5vw,4rem)] md:px-16 md:py-24 pb-[calc(clamp(1.5rem,5vw,4rem)+env(safe-area-inset-bottom))] transition-colors duration-1000 selection:bg-[var(--theme-primary)] selection:text-[var(--theme-bg)]"
       style={themeStyle}
     >
       {/* Header Poster */}
-      <header className="mb-12 text-center select-none w-full max-w-4xl mx-auto">
+      <header className={`${isInputFocused ? 'mb-4 md:mb-12' : 'mb-8 md:mb-12'} text-center select-none w-full max-w-4xl mx-auto transition-all duration-500`}>
         <motion.h1
-          className="text-2xl md:text-5xl font-bold mb-4 text-center select-none leading-none drop-shadow-sm"
+          className={`${isInputFocused ? 'text-xl md:text-5xl' : 'text-2xl md:text-5xl'} font-bold mb-2 md:mb-4 text-center select-none leading-none drop-shadow-sm transition-all duration-500`}
           style={{
             fontFamily: 'var(--theme-font-display)',
             textTransform: 'var(--theme-heading-transform)' as any,
@@ -310,7 +317,7 @@ export default function App() {
         </motion.h1>
 
         <motion.p
-          className="text-[0.8rem] md:text-sm leading-[2] text-center max-w-2xl mx-auto opacity-70 mb-16"
+          className={`${isInputFocused ? 'mb-4 md:mb-16' : 'mb-8 md:mb-16'} text-[0.8rem] md:text-sm leading-[2] text-center max-w-2xl mx-auto opacity-70 transition-all duration-500`}
           style={{
             fontFamily: 'var(--theme-font-body)',
             letterSpacing: '0.1em',
@@ -348,40 +355,98 @@ export default function App() {
           >
             Traduire le mot...
           </motion.span>
-          <input
-            ref={inputRef}
-            type="text"
-            className="w-full text-center focus:outline-none transition-all duration-700 placeholder:text-[var(--theme-placeholder)]"
-            style={{
-              backgroundColor: 'var(--theme-input)',
-              fontSize: 'var(--theme-input-size)',
-              fontFamily: 'var(--theme-font-display)',
-              borderRadius: 'var(--theme-radius)',
-              color: 'inherit',
-              padding: '1rem',
-              caretColor: 'transparent',
-            }}
-            placeholder={placeholder || ""}
-            value={word}
-            onChange={(e) => {
-              setWord(e.target.value);
-              setIsTyping(true);
-            }}
-            onKeyDown={(e) => {
-              setIsTyping(true);
-              if (e.key === 'Enter') handleGenerate();
-            }}
-            onClick={() => setIsTyping(true)}
-            maxLength={30}
-            autoFocus
-          />
+          <div className="relative w-full">
+            <input
+              ref={inputRef}
+              type="text"
+              className="w-full text-center focus:outline-none transition-all duration-700 placeholder:text-[var(--theme-placeholder)]"
+              style={{
+                backgroundColor: 'var(--theme-input)',
+                fontSize: 'var(--theme-input-size)',
+                fontFamily: 'var(--theme-font-display)',
+                borderRadius: 'var(--theme-radius)',
+                color: 'inherit',
+                padding: '1rem',
+                caretColor: 'transparent',
+              }}
+              placeholder={placeholder || ""}
+              value={word}
+              onChange={(e) => {
+                setWord(e.target.value);
+                setIsTyping(true);
+                updateCaretPosition();
+              }}
+              onKeyDown={(e) => {
+                setIsTyping(true);
+                updateCaretPosition();
+                if (e.key === 'Enter') handleGenerate();
+              }}
+              onKeyUp={() => updateCaretPosition()}
+              onClick={() => {
+                setIsTyping(true);
+                updateCaretPosition();
+              }}
+              onFocus={() => {
+                setIsInputFocused(true);
+                updateCaretPosition();
+              }}
+              onBlur={() => setIsInputFocused(false)}
+              maxLength={30}
+              autoFocus
+            />
+            {isInputFocused && (
+              <motion.div
+                className="absolute pointer-events-none z-10"
+                style={{
+                  left: caretLeft,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: '3px',
+                  height: `${caretHeight}px`,
+                  backgroundColor: 'var(--theme-primary)',
+                  borderRadius: '2px',
+                }}
+                animate={{
+                  opacity: [1, 0, 1],
+                }}
+                transition={{
+                  repeat: Infinity,
+                  duration: 1,
+                  ease: "easeInOut",
+                }}
+              />
+            )}
+          </div>
         </div>
       </motion.div>
 
       {/* Zone de résultats */}
       <div className="mt-8 w-full max-w-6xl mx-auto min-h-[300px] flex flex-col items-center justify-start">
         <AnimatePresence mode="wait">
-          {aiResponse ? (
+          {loading ? (
+            <motion.div
+              key="loading"
+              className="w-full flex flex-col items-center mt-12 md:mt-24"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 md:gap-x-20 gap-y-16 text-center w-full">
+                {[1, 2, 3].map((item) => (
+                  <div
+                    key={item}
+                    className="py-6 md:py-10 animate-pulse text-[var(--theme-secondary)] opacity-50 select-none"
+                    style={{
+                      fontFamily: 'var(--theme-font-display)',
+                      fontSize: 'var(--theme-result-size)'
+                    }}
+                  >
+                    ...
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          ) : aiResponse ? (
             <motion.div
               key="results"
               className="w-full flex flex-col items-center mt-12 md:mt-24"
@@ -390,7 +455,7 @@ export default function App() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.8 }}
             >
-              {translations.length > 0 && (
+              {translations.length > 0 ? (
                 <div className="flex flex-col items-center w-full">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 md:gap-x-20 gap-y-16 text-center w-full">
                     {translations.map((alt, index) => (
@@ -412,6 +477,16 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+              ) : (
+                <div
+                  className="py-6 md:py-10 text-[var(--theme-secondary)] opacity-70 select-none text-center"
+                  style={{
+                    fontFamily: 'var(--theme-font-display)',
+                    fontSize: 'var(--theme-result-size)'
+                  }}
+                >
+                  Aucune traduction trouvée.
+                </div>
               )}
             </motion.div>
           ) : null}
@@ -419,43 +494,38 @@ export default function App() {
       </div>
 
       {/* Premium Cursor */}
-      <motion.div
-        className="pointer-events-none fixed top-0 left-0 z-50 select-none hidden md:block -translate-x-1/2 -translate-y-1/2"
-        style={{
-          x: cursorX,
-          y: cursorY,
-          backgroundColor: 'var(--theme-primary)',
-        }}
-        variants={{
-          default: {
-            width: 12,
-            height: 12,
-            borderRadius: "50%",
-            opacity: 0.6,
-          },
-          pointer: {
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            opacity: 0.4,
-          },
-          text: {
-            width: 4,
-            height: 38,
-            borderRadius: "2px",
-            opacity: [0.35, 0.8, 0.35],
-            transition: {
-              opacity: {
-                repeat: Infinity,
-                duration: 1.2,
-                ease: "easeInOut"
-              }
-            }
-          },
-        }}
-        animate={cursorType}
-        transition={{ type: "spring", damping: 30, stiffness: 350, mass: 0.5 }}
-      />
+      {isFinePointer && (
+        <motion.div
+          className="pointer-events-none fixed top-0 left-0 z-50 select-none hidden md:block -translate-x-1/2 -translate-y-1/2"
+          style={{
+            x: cursorX,
+            y: cursorY,
+            backgroundColor: 'var(--theme-primary)',
+          }}
+          variants={{
+            default: {
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              opacity: 0.6,
+            },
+            pointer: {
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              opacity: 0.4,
+            },
+            text: {
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              opacity: 0.5,
+            },
+          }}
+          animate={cursorType}
+          transition={{ type: "spring", damping: 30, stiffness: 350, mass: 0.5 }}
+        />
+      )}
     </motion.div>
   );
 }
