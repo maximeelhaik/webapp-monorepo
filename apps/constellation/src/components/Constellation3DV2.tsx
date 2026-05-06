@@ -32,6 +32,7 @@ interface ConstellationProps {
     nodeCount?: number;
     activeTheme: string;
     labelsOpaque?: boolean;
+    externalEdges?: Set<string>;
 }
 
 // --- Constantes visuelles ---
@@ -137,7 +138,7 @@ const Node = React.memo(({
 
         // Mise à jour du label HTML (couleur et opacité)
         if (labelRef.current) {
-            labelRef.current.style.color = isActive ? theme.colors.primary : theme.colors.text;
+            labelRef.current.style.color = isActive ? 'var(--theme-bg)' : theme.colors.text;
             labelRef.current.style.opacity = `${labelTextOpacity}`;
         }
     });
@@ -217,29 +218,34 @@ const Node = React.memo(({
             <Html center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
                 <span
                     ref={labelRef}
+                    className="graph-label font-medium"
                     style={{
                         display: 'block',
                         pointerEvents: 'none',
                         userSelect: 'none',
-                        color: isActive ? theme.colors.primary : theme.colors.text,
-                        fontSize: distance === 0 ? '25px' : (distance === 1 ? '18px' : '18px'),
+                        color: isActive ? 'var(--theme-bg)' : theme.colors.text,
+                        background: isActive ? 'var(--theme-primary)' : 'transparent',
+                        padding: isActive ? '4px 10px' : '0',
+                        border: isActive ? '1px solid var(--theme-primary)' : 'none',
+                        fontSize: distance === 0 ? '14px' : (distance === 1 ? '18px' : '18px'),
                         fontWeight: distance === 0 ? 500 : (distance === 1 ? 300 : 200),
-                        fontFamily: theme.typography.display,
-                        fontStyle: 'italic',
+                        fontFamily: 'var(--app-font-display)',
+                        fontStyle: isActive ? 'normal' : 'italic',
                         letterSpacing: distance <= 1 ? '0.15em' : '0.05em',
-                        textTransform: 'none',
+                        textTransform: isActive ? 'uppercase' : 'none',
                         textShadow: isActive
-                            ? '0 0 20px rgba(245,166,35,0.6)'
+                            ? 'none'
                             : distance <= 1
                                 ? '0 0 15px rgba(255,255,255,0.2)'
                                 : 'none',
-                        transform: `translate3d(0, ${distance === 0 ? 55 : (distance === 1 ? 35 : 22)}px, 0)`,
+                        boxShadow: isActive ? '0 0 20px rgba(245, 166, 35, 0.45)' : 'none',
+                        transform: `translate3d(0, ${distance === 0 ? 45 : (distance === 1 ? 35 : 22)}px, 0)`,
                         whiteSpace: 'nowrap',
                         opacity: isActive ? 1.0 : initialLabelOpacity,
                         transition: 'all 0.3s ease-out'
                     }}
                 >
-                    {formattedLabel}
+                    {isActive ? data.label.toUpperCase() : formattedLabel}
                 </span>
             </Html>
         </group>
@@ -412,7 +418,8 @@ const GraphScene = ({
     parentsMap = {}, 
     isLoading, 
     theme,
-    labelsOpaque = false
+    labelsOpaque = false,
+    externalEdges
 }: ConstellationProps & { theme: any }) => {
     const { camera } = useThree();
     const [nodes, setNodes] = useState<Map<string, NodeData>>(new Map());
@@ -421,6 +428,21 @@ const GraphScene = ({
     const groupRef = useRef<THREE.Group>(null);
     const targetCameraPos = useRef(new THREE.Vector3(0, 0, 500));
     const isRotating = useRef(false);
+
+    useEffect(() => {
+        if (!externalEdges) return;
+        setEdges(prev => {
+            const next = new Map(prev);
+            externalEdges.forEach(link => {
+                const [a, b] = link.split('|');
+                const id = [a, b].sort().join('-');
+                if (!next.has(id)) {
+                    next.set(id, { id, source: a, target: b, growFrom: a });
+                }
+            });
+            return next;
+        });
+    }, [externalEdges]);
 
     useEffect(() => {
         const lowerCenter = centerWord.toLowerCase();

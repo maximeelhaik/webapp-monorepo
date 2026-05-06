@@ -85,15 +85,11 @@ export async function generateAiStream({
       const is503 = e?.status === 503 || e?.statusCode === 503 ||
         (e?.message && (e.message.includes("503") || e.message.includes("high demand") || e.message.includes("UNAVAILABLE")));
 
-      if (is503) {
-        console.warn(`[GEMINI 503] ⚠️ Erreur 503/High Demand détectée (Essai ${retries}/${maxRetries}). Message: ${e.message || e}`);
-        if (retries < maxRetries) {
-          // Solution A (plus agressive) : délais réduits (ex: 150ms, 225ms, 337ms...) pour UX fluide
-          const delay = Math.pow(1.5, retries) * 150 + Math.random() * 100;
-          console.log(`[GEMINI RETRY] ⏱️ Attente agressive de ${Math.round(delay)}ms avant le prochain essai...`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
+      if (is503 && retries < maxRetries) {
+        // Backoff exponentiel plus robuste : 2s, 4s, 8s, 16s, 32s + jitter
+        const delay = Math.pow(2, retries) * 1000 + Math.random() * 1000;
+        await new Promise(r => setTimeout(r, delay));
+        continue;
       }
 
       throw e;
@@ -180,20 +176,7 @@ export function createKvDbHandler(defaultKey: string) {
 
 export async function createAiStreamResponse(responseStreamPromise: Promise<any>) {
   const startTime = Date.now();
-  let response;
-  try {
-    response = await responseStreamPromise;
-  } catch (err: any) {
-    console.error("[STREAM RESPONSE ERROR]", err);
-    return new Response(JSON.stringify({ error: err.message || "Erreur AI" }), {
-      status: err.status || 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      }
-    });
-  }
-  const connectDuration = Date.now() - startTime;
+  const response = await responseStreamPromise;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -221,7 +204,6 @@ export async function createAiStreamResponse(responseStreamPromise: Promise<any>
           }
         }
       } catch (error: any) {
-        console.error("[STREAM CHUNK ERROR]", error);
         controller.enqueue(encoder.encode(`---ERROR---${error.message || "Erreur AI"}`));
       } finally {
         controller.close();
@@ -239,7 +221,6 @@ export async function createAiStreamResponse(responseStreamPromise: Promise<any>
       'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
       'X-Model-Used': getModel(),
-      'Server-Timing': `gemini-connect;dur=${connectDuration};desc="Gemini Stream Connection"`,
     },
   });
 }

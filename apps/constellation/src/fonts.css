@@ -1,0 +1,40 @@
+/* ==========================================================================
+   CONSTELLATION — apps/constellation/src/fonts.css
+
+   ╔══════════════════════════════════════════════════════════════╗
+   ║  CHANGER LES POLICES ICI — 2 lignes suffisent               ║
+   ╠══════════════════════════════════════════════════════════════╣
+   ║                                                              ║
+   ║  --app-font-display : Titres (Lexical) + Étiquettes 3D      ║
+   ║  --app-font-body    : Sous-titres (S.M.S) + Secondaires     ║
+   ║                                                              ║
+   ║  Police display actuelle : DM Mono (Bold Italic)            ║
+   ║  Police body actuelle    : Inter                             ║
+   ╚══════════════════════════════════════════════════════════════╝
+
+   Pour changer une police :
+   1. Modifier la valeur de la variable ci-dessous
+   2. Si c'est une Google Font, ajouter l'URL dans l'@import de index.css
+   3. Le reste de l'app s'adapte automatiquement
+   ========================================================================== */
+
+:root {
+  /* ─── POLICE DISPLAY (Titres, Étiquettes 3D) ─────────────────────────── */
+  /*     Options disponibles (décommenter la ligne souhaitée) :              */
+
+  --app-font-display: "DM Mono", monospace;
+  /* --app-font-display: "JetBrains Mono", monospace; */
+  /* --app-font-display: "IBM Plex Mono", monospace;  */
+  /* --app-font-display: "Geist Mono", monospace;     */
+
+  /* ─── POLICE BODY (Sous-titres S.M.S, Éléments secondaires) ─────────── */
+  /*     Options disponibles (décommenter la ligne souhaitée) :              */
+  /*--app-font-body: "Inter", sans-serif; */
+  /* --app-font-body: "Space Grotesk", sans-serif;  */
+  --app-font-body: "Inter Tight", sans-serif;
+  /* --app-font-body: "Syne", sans-serif;           */
+
+  /* ─── Opacités des overlays (ajuster sans toucher à la logique) ───────── */
+  --app-scanline-opacity: 0.015;
+  --app-vignette-opacity: 0.30;
+}
