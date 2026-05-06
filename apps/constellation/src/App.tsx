@@ -50,6 +50,7 @@ export default function App() {
   const lastFetchedWordRef = useRef<string | null>(null);
   const [exploredCache, setExploredCache] = useState<Record<string, string[]>>({});
   const [initialized, setInitialized] = useState(false);
+  const [labelsOpaque, setLabelsOpaque] = useState(false);
 
 
   // Boot + UI states
@@ -85,8 +86,13 @@ export default function App() {
       let newType: 'default' | 'pointer' | 'text' = 'default';
 
       if (target) {
-        if (target.tagName === 'INPUT' || target.closest('input')) {
-          newType = 'text';
+        const inputEl = target.tagName === 'INPUT' ? (target as HTMLInputElement) : target.closest('input');
+        if (inputEl) {
+          if (inputEl.type === 'range') {
+            newType = 'pointer';
+          } else {
+            newType = 'text';
+          }
         } else if (
           target.tagName === 'BUTTON' ||
           target.closest('button') ||
@@ -119,6 +125,8 @@ export default function App() {
     const t = setTimeout(() => setAmberFlash(false), 500);
     return () => clearTimeout(t);
   }, [centerWord]);
+
+
 
   // --- CODE ORIGINAL POUR REVERT ---
   /*
@@ -325,7 +333,7 @@ export default function App() {
       // Lancer les deux requêtes en parallèle (Invisible Bridge) 
       // Uniquement si c'est une recherche et que le mot n'est pas sur la map
       const isAlreadyOnMap = allNodesOnMap.some(w => w.toLowerCase() === lowerNext);
-      const shouldCheckConnect = isSearch; // On vérifie même si déjà présent pour "resserrer" le réseau
+      const shouldCheckConnect = isSearch && initialized && allNodesOnMap.length > 0;
 
       if (shouldCheckConnect) {
         console.log(`%c[BRIDGE] 🛰️ Analyse de connexion pour "${nextWord}"...`, 'color: #f472b6; font-weight: bold;');
@@ -512,6 +520,39 @@ export default function App() {
     }
   };
 
+  // Navigation avec les flèches gauche/droite dans le fil d'Ariane
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        activeEl.hasAttribute('contenteditable')
+      )) {
+        return;
+      }
+
+      if (e.key === 'ArrowLeft') {
+        const lowerPath = history.map(w => w.toLowerCase());
+        const currentIndex = lowerPath.indexOf(centerWord.toLowerCase());
+        if (currentIndex > 0) {
+          e.preventDefault();
+          handleNavigateWord(history[currentIndex - 1]);
+        }
+      } else if (e.key === 'ArrowRight') {
+        const lowerPath = history.map(w => w.toLowerCase());
+        const currentIndex = lowerPath.indexOf(centerWord.toLowerCase());
+        if (currentIndex !== -1 && currentIndex < history.length - 1) {
+          e.preventDefault();
+          handleNavigateWord(history[currentIndex + 1]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [history, centerWord, handleNavigateWord]);
+
 
   const handleCustomJump = (e: React.FormEvent) => {
     e.preventDefault();
@@ -691,6 +732,7 @@ export default function App() {
           isLoading={loading}
           nodeCount={allNodesOnMap.length}
           activeTheme={activeTheme}
+          labelsOpaque={labelsOpaque}
         />
       )}
 
@@ -1030,6 +1072,48 @@ export default function App() {
           </span>
         </div>
       </footer>
+      )}
+
+      {/* Floating Map Labels Control */}
+      {initialized && centerWord && (
+        <div className="fixed right-6 top-1/2 -translate-y-1/2 z-40 pointer-events-auto flex flex-col gap-2">
+          <motion.div
+            className="flex items-center gap-3 p-3.5 border rounded bg-[var(--theme-card)] shadow-2xl backdrop-blur-md select-none"
+            style={{
+              borderColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
+              boxShadow: 'var(--theme-shadow)',
+            }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          >
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8px] tracking-[0.2em] font-mono text-[var(--theme-primary)] uppercase">
+                ÉTIQUETTES
+              </span>
+              <span className="text-[9px] tracking-[0.05em] font-mono uppercase opacity-70">
+                {labelsOpaque ? 'OPAQUE (100%)' : 'PAR DÉFAUT'}
+              </span>
+            </div>
+
+            {/* Styled Switch Button */}
+            <button
+              type="button"
+              onClick={() => setLabelsOpaque(!labelsOpaque)}
+              className="relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none focus:outline-none"
+              style={{
+                backgroundColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
+              }}
+            >
+              <span
+                className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--theme-card)] shadow ring-0 transition duration-200 ease-in-out"
+                style={{
+                  transform: labelsOpaque ? 'translateX(20px)' : 'translateX(0px)',
+                }}
+              />
+            </button>
+          </motion.div>
+        </div>
       )}
 
       {/* Custom cursor */}

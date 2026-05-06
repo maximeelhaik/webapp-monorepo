@@ -69,18 +69,43 @@ export default async function handler(req: Request) {
     const aiInstance = getAiInstance();
     if (!aiInstance) throw new Error("AI instance not available");
 
-    const result = await aiInstance.models.generateContent({
-      model: getModel(),
-      contents: `Mot utilisateur : "${word}"`,
-      config: {
-        systemInstruction,
-        temperature: 0.2,
-        maxOutputTokens: 500,
+    let result;
+    let retries = 0;
+    const maxRetries = 3; // Retry un peu pour connect.ts aussi si besoin
+    
+    while (retries < maxRetries) {
+      try {
+        result = await aiInstance.models.generateContent({
+          model: getModel(),
+          contents: `Mot utilisateur : "${word}"`,
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+            maxOutputTokens: 500,
+          }
+        });
+        break;
+      } catch (e: any) {
+        retries++;
+        const is503 = e?.status === 503 || e?.statusCode === 503 ||
+          (e?.message && (e.message.includes("503") || e.message.includes("high demand") || e.message.includes("UNAVAILABLE")));
+        
+        if (is503) {
+          console.warn(`[GEMINI CONNECT 503] ⚠️ Erreur 503 détectée sur connect.ts (Essai ${retries}/${maxRetries}). Message: ${e.message || e}`);
+          if (retries < maxRetries) {
+            const delay = Math.pow(1.5, retries) * 150 + Math.random() * 100;
+            console.log(`[GEMINI CONNECT RETRY] ⏱️ Attente agressive de ${Math.round(delay)}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+        }
+        throw e;
       }
-    });
+    }
 
     const endTimer = Date.now();
-    console.log(`[CONNECT] ⏱️ Délai IA: ${endTimer - startTimer}ms`);
+    const geminiDuration = endTimer - startTimer;
+    console.log(`[CONNECT] ⏱️ Délai IA: ${geminiDuration}ms`);
 
     let rawText = "";
     try {
@@ -104,7 +129,11 @@ export default async function handler(req: Request) {
     if (rawText.toLowerCase() === 'null') {
       return new Response(JSON.stringify({ connectedTo: null }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*',
+          'Server-Timing': `gemini-connect;dur=${geminiDuration};desc="Gemini Connect Call"`
+        }
       });
     }
 
@@ -125,13 +154,19 @@ export default async function handler(req: Request) {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'Server-Timing': `gemini-connect;dur=${geminiDuration};desc="Gemini Connect Call"`
       }
     });
   } catch (error: any) {
     console.error(`[CONNECT ERROR]`, error);
+    const endTimer = Date.now();
+    const duration = endTimer - startTimer;
     return new Response(JSON.stringify({ connectedTo: null, error: error.message }), {
       status: 200, // On renvoie 200 même en cas d'erreur IA pour ne pas bloquer le flux principal
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Server-Timing': `gemini-connect-failed;dur=${duration};desc="Gemini Connect Failed"`
+      }
     });
   }
 }

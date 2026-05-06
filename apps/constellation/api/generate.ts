@@ -60,7 +60,7 @@ export default async function handler(req: Request) {
         contents: `Génère les 6 mots associés au mot : ${cleanPrompt}`,
         systemInstruction,
         temperature: 0.85,
-        maxOutputTokens: 1000, // Largement suffisant pour 5 mots, réduit la latence
+        maxOutputTokens: 500, // Largement suffisant pour 5 mots, réduit la latence
       })
     );
   } catch (error: any) {

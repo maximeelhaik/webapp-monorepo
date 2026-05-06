@@ -31,6 +31,7 @@ interface ConstellationProps {
     isLoading?: boolean;
     nodeCount?: number;
     activeTheme: string;
+    labelsOpaque?: boolean;
 }
 
 // --- Constantes visuelles ---
@@ -54,6 +55,7 @@ const Node = React.memo(({
     distance = 0,
     isLoading,
     theme,
+    labelsOpaque = false,
 }: {
     data: NodeData;
     isActive: boolean;
@@ -62,6 +64,7 @@ const Node = React.memo(({
     distance?: number;
     isLoading?: boolean;
     theme: any;
+    labelsOpaque?: boolean;
 }) => {
     const groupRef = useRef<THREE.Group>(null);
     const currentPos = useRef(new THREE.Vector3().copy(data.startPos));
@@ -86,6 +89,9 @@ const Node = React.memo(({
             ? Math.max(0.40, 0.85 / Math.pow(distance, 1.2)) 
             : Math.max(0.01, 0.6 / Math.pow(distance, 1.5));
 
+    const initialNodeOpacity = baseOpacity;
+    const initialLabelOpacity = distance <= 1 ? baseOpacity : (labelsOpaque ? baseOpacity : 0.0);
+
     useFrame(({ camera, clock }) => {
         // Ralentissement de la translation (0.05 -> 0.02)
         currentPos.current.lerp(data.targetPos, 0.02);
@@ -108,20 +114,31 @@ const Node = React.memo(({
         const zoomFactor = 1 - THREE.MathUtils.smoothstep(zoom, 6, 25);
         const currentOpacity = baseOpacity + (1.0 - baseOpacity) * zoomFactor;
 
+        const nodeOpacity = distance <= 1 ? baseOpacity : currentOpacity;
+        const labelTextOpacity = distance <= 1 ? baseOpacity : (labelsOpaque ? currentOpacity : 0.0);
+
         // Mise à jour directe des matériaux pour la performance
-        if (circleMatRef.current) circleMatRef.current.opacity = currentOpacity;
+        if (circleMatRef.current) {
+            circleMatRef.current.opacity = nodeOpacity;
+            if (!isActive) {
+                const c1 = new THREE.Color(hovered ? '#ffffff' : theme.colors.secondary.slice(0, 7));
+                const c2 = new THREE.Color(theme.colors.primary.slice(0, 7));
+                c1.lerp(c2, zoomFactor);
+                circleMatRef.current.color.copy(c1);
+            }
+        }
         if (glowMatRef.current) {
             const glowBase = isActive ? 0.18 : (hovered ? 0.08 : 0.03);
-            glowMatRef.current.opacity = glowBase * currentOpacity;
+            glowMatRef.current.opacity = glowBase * nodeOpacity;
         }
-        if (ringMatRef.current) ringMatRef.current.opacity = 0.5 * currentOpacity;
-        if (cross1MatRef.current) cross1MatRef.current.opacity = 0.3 * currentOpacity;
-        if (cross2MatRef.current) cross2MatRef.current.opacity = 0.3 * currentOpacity;
+        if (ringMatRef.current) ringMatRef.current.opacity = 0.5 * nodeOpacity;
+        if (cross1MatRef.current) cross1MatRef.current.opacity = 0.3 * nodeOpacity;
+        if (cross2MatRef.current) cross2MatRef.current.opacity = 0.3 * nodeOpacity;
 
         // Mise à jour du label HTML (couleur et opacité)
         if (labelRef.current) {
             labelRef.current.style.color = isActive ? theme.colors.primary : theme.colors.text;
-            labelRef.current.style.opacity = `${currentOpacity}`;
+            labelRef.current.style.opacity = `${labelTextOpacity}`;
         }
     });
 
@@ -129,7 +146,6 @@ const Node = React.memo(({
     const hitR = isActive ? HIT_RADIUS_ACTIVE : HIT_RADIUS_NODE;
     const glowR = nodeR * 2.4;
 
-    const opacity = distance <= 1 ? 1 : Math.max(0.05, 0.7 / Math.pow(distance, 1.5));
     const formattedLabel = data.label.charAt(0).toUpperCase() + data.label.slice(1).toLowerCase();
 
     return (
@@ -147,9 +163,9 @@ const Node = React.memo(({
                 <circleGeometry args={[glowR, 32]} />
                 <meshBasicMaterial
                     ref={glowMatRef}
-                    color={isActive ? theme.colors.primary : '#ffffff'}
+                    color={(isActive ? theme.colors.primary : '#ffffff').slice(0, 7)}
                     transparent
-                    opacity={(isActive ? 0.18 : (hovered ? 0.08 : 0.03)) * baseOpacity}
+                    opacity={(isActive ? 0.18 : (hovered ? 0.08 : 0.03)) * initialNodeOpacity}
                     blending={THREE.AdditiveBlending}
                     depthWrite={false}
                     side={THREE.DoubleSide}
@@ -160,9 +176,9 @@ const Node = React.memo(({
                 <circleGeometry args={[nodeR, 4]} />
                 <meshBasicMaterial
                     ref={circleMatRef}
-                    color={isActive ? theme.colors.primary : (hovered ? '#ffffff' : theme.colors.secondary)}
+                    color={(isActive ? theme.colors.primary : (hovered ? '#ffffff' : theme.colors.secondary)).slice(0, 7)}
                     transparent
-                    opacity={baseOpacity}
+                    opacity={initialNodeOpacity}
                     side={THREE.DoubleSide}
                     depthWrite={false}
                 />
@@ -174,9 +190,9 @@ const Node = React.memo(({
                     <ringGeometry args={[nodeR * 1.6, nodeR * 1.9, 24]} />
                     <meshBasicMaterial
                         ref={ringMatRef}
-                        color={theme.colors.primary}
+                        color={theme.colors.primary.slice(0, 7)}
                         transparent
-                        opacity={0.5 * baseOpacity}
+                        opacity={0.5 * initialNodeOpacity}
                         side={THREE.DoubleSide}
                         blending={THREE.AdditiveBlending}
                         depthWrite={false}
@@ -189,11 +205,11 @@ const Node = React.memo(({
                 <group rotation={[0, 0, Math.PI / 4]} renderOrder={12}>
                     <mesh raycast={() => null}>
                         <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial ref={cross1MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} depthWrite={false} />
+                        <meshBasicMaterial ref={cross1MatRef} color="#ffffff" transparent opacity={0.3 * initialNodeOpacity} depthWrite={false} />
                     </mesh>
                     <mesh raycast={() => null} rotation={[0, 0, Math.PI / 2]}>
                         <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial ref={cross2MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} depthWrite={false} />
+                        <meshBasicMaterial ref={cross2MatRef} color="#ffffff" transparent opacity={0.3 * initialNodeOpacity} depthWrite={false} />
                     </mesh>
                 </group>
             )}
@@ -219,7 +235,7 @@ const Node = React.memo(({
                                 : 'none',
                         transform: `translate3d(0, ${distance === 0 ? 55 : (distance === 1 ? 35 : 22)}px, 0)`,
                         whiteSpace: 'nowrap',
-                        opacity: isActive ? 1.0 : baseOpacity,
+                        opacity: isActive ? 1.0 : initialLabelOpacity,
                         transition: 'all 0.3s ease-out'
                     }}
                 >
@@ -293,18 +309,28 @@ const Edge = React.memo(({
             const baseMultiplier = isLight ? 0.8 : 0.4;
             const activeMultiplier = baseMultiplier + (1.0 - baseMultiplier) * zoomFactor;
             matRef.current.opacity = distance <= 0.5 ? 1.0 : currentOpacity * activeMultiplier;
+
+            // Lerp de la couleur vers la couleur principale (primary) quand on dézoome
+            if (distance > 0.5) {
+                const c1 = new THREE.Color(theme.colors.secondary.slice(0, 7));
+                const c2 = new THREE.Color(theme.colors.primary.slice(0, 7));
+                c1.lerp(c2, zoomFactor);
+                matRef.current.color.copy(c1);
+            }
         }
     });
 
     const isLight = theme.id === 'POETIC_LIGHT';
+    const initialEdgeOpacity = distance <= 0.5 ? 1.0 : baseOpacity * (isLight ? 0.8 : 0.4);
+
     return (
         <mesh ref={meshRef} renderOrder={1}>
             <boxGeometry args={[0.04, 1, 0.04]} />
             <meshBasicMaterial
                 ref={matRef}
-                color={distance <= 0.5 ? theme.colors.primary : theme.colors.secondary}
+                color={(distance <= 0.5 ? theme.colors.primary : theme.colors.secondary).slice(0, 7)}
                 transparent
-                opacity={distance <= 0.5 ? 1.0 : baseOpacity * (isLight ? 0.8 : 0.4)}
+                opacity={initialEdgeOpacity}
                 depthWrite={false}
                 blending={isLight ? THREE.NormalBlending : THREE.AdditiveBlending}
             />
@@ -378,7 +404,16 @@ function getBestViewDirection(neighbors: THREE.Vector3[]): THREE.Vector3 {
 }
 
 // --- Scène principale ---
-const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, parentsMap = {}, isLoading, theme }: ConstellationProps & { theme: any }) => {
+const GraphScene = ({ 
+    centerWord, 
+    relatedWords, 
+    onWordClick, 
+    forceConnectTo, 
+    parentsMap = {}, 
+    isLoading, 
+    theme,
+    labelsOpaque = false
+}: ConstellationProps & { theme: any }) => {
     const { camera } = useThree();
     const [nodes, setNodes] = useState<Map<string, NodeData>>(new Map());
     const [edges, setEdges] = useState<Map<string, EdgeData>>(new Map());
@@ -504,8 +539,28 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
             // Relaxation 3D Force-Directed (Ressorts + Répulsion) pour garantir la cohérence
             const allNodesList = Array.from(newNodes.values());
 
-            for (let iter = 0; iter < 20; iter++) {
+            // Collecter tous les liens actifs pour appliquer l'attraction
+            const activeConnections = new Set<string>();
+            edges.forEach(edge => {
+                const pair = [edge.source.toLowerCase(), edge.target.toLowerCase()].sort().join('|');
+                activeConnections.add(pair);
+            });
+            relatedWords.forEach(w => {
+                const pair = [lowerCenter, w.toLowerCase()].sort().join('|');
+                activeConnections.add(pair);
+            });
+            if (forceConnectTo) {
+                const pair = [lowerCenter, forceConnectTo.toLowerCase()].sort().join('|');
+                activeConnections.add(pair);
+            }
+            allNodesList.forEach(n => {
+                if (n.parentId) {
+                    const pair = [n.id, n.parentId.toLowerCase()].sort().join('|');
+                    activeConnections.add(pair);
+                }
+            });
 
+            for (let iter = 0; iter < 20; iter++) {
                 const displacements = new Map<string, THREE.Vector3>();
                 allNodesList.forEach(n => displacements.set(n.id, new THREE.Vector3()));
 
@@ -525,19 +580,19 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                     }
                 }
 
-                // 2. Attraction le long des liens directs pour éviter qu'ils soient trop loin (distance max)
-                allNodesList.forEach(n => {
-                    if (n.parentId) {
-                        const p = newNodes.get(n.parentId);
-                        if (p) {
-                            const delta = new THREE.Vector3().subVectors(n.targetPos, p.targetPos);
-                            const dist = delta.length();
-                            if (dist > 0.01) {
-                                const forceMag = (dist - TARGET_DIST) * 0.22;
-                                const pull = delta.clone().normalize().multiplyScalar(forceMag);
-                                displacements.get(n.id)!.sub(pull);
-                                displacements.get(p.id)!.add(pull);
-                            }
+                // 2. Attraction le long de TOUTES les connexions actives
+                activeConnections.forEach(linkStr => {
+                    const [id1, id2] = linkStr.split('|');
+                    const n1 = newNodes.get(id1);
+                    const n2 = newNodes.get(id2);
+                    if (n1 && n2) {
+                        const delta = new THREE.Vector3().subVectors(n1.targetPos, n2.targetPos);
+                        const dist = delta.length();
+                        if (dist > 0.01) {
+                            const forceMag = (dist - TARGET_DIST) * 0.22;
+                            const pull = delta.clone().normalize().multiplyScalar(forceMag);
+                            displacements.get(n1.id)!.sub(pull);
+                            displacements.get(n2.id)!.add(pull);
                         }
                     }
                 });
@@ -633,6 +688,55 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
     }, [centerWord, nodes]);
 
     useFrame(() => {
+        // --- RELAXATION CONTINUE DU RÉSEAU (TEMPS RÉEL) ---
+        const lowerCenter = centerWord.toLowerCase();
+        const allNodesList = Array.from(nodes.values());
+        if (allNodesList.length > 1) {
+            const displacements = new Map<string, THREE.Vector3>();
+            allNodesList.forEach(n => displacements.set(n.id, new THREE.Vector3()));
+
+            // 1. Répulsion temps réel entre tous les nœuds
+            for (let i = 0; i < allNodesList.length; i++) {
+                for (let j = i + 1; j < allNodesList.length; j++) {
+                    const n1 = allNodesList[i];
+                    const n2 = allNodesList[j];
+                    const delta = new THREE.Vector3().subVectors(n1.targetPos, n2.targetPos);
+                    const dist = delta.length();
+                    if (dist < MIN_DIST && dist > 0.01) {
+                        const forceMag = (MIN_DIST - dist) * 0.04; // force modérée pour une transition lisse
+                        const push = delta.clone().normalize().multiplyScalar(forceMag);
+                        displacements.get(n1.id)!.add(push);
+                        displacements.get(n2.id)!.sub(push);
+                    }
+                }
+            }
+
+            // 2. Attraction temps réel le long de tous les liens actifs
+            edges.forEach(edge => {
+                const n1 = nodes.get(edge.source);
+                const n2 = nodes.get(edge.target);
+                if (n1 && n2) {
+                    const delta = new THREE.Vector3().subVectors(n1.targetPos, n2.targetPos);
+                    const dist = delta.length();
+                    if (dist > 0.01) {
+                        const forceMag = (dist - TARGET_DIST) * 0.035; // attraction modérée
+                        const pull = delta.clone().normalize().multiplyScalar(forceMag);
+                        displacements.get(n1.id)!.sub(pull);
+                        displacements.get(n2.id)!.add(pull);
+                    }
+                }
+            });
+
+            // 3. Application fluide des déplacements (le centre reste fixe)
+            allNodesList.forEach(n => {
+                if (n.id === lowerCenter) return;
+                const disp = displacements.get(n.id)!;
+                const maxDisp = 0.4; // cap pour éviter des sauts brutaux
+                if (disp.length() > maxDisp) disp.normalize().multiplyScalar(maxDisp);
+                n.targetPos.add(disp);
+            });
+        }
+
         // Translation du groupe fluide et amortie pour centrer le concept actif
         if (groupRef.current) groupRef.current.position.lerp(targetGroupOffset, 0.05);
 
@@ -690,6 +794,7 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                         distance={node.distance}
                         isLoading={isLoading}
                         theme={theme}
+                        labelsOpaque={labelsOpaque}
                     />
                 ))}
             </group>
