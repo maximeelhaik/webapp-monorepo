@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
+import { ACTIVE_THEME, THEMES } from '../theme';
 
 // --- TYPES ---
 export interface NodeData {
@@ -29,13 +30,18 @@ interface ConstellationProps {
     parentsMap?: Record<string, string>;
     isLoading?: boolean;
     nodeCount?: number;
+    activeTheme: string;
 }
 
 // --- Constantes visuelles ---
-const ACTIVE_RADIUS = 1.1;   // rayon du cercle central
-const NODE_RADIUS   = 0.4;   // rayon des cercles satellites
-const HIT_RADIUS_ACTIVE = 2.8; // zone de clic du noeud central
-const HIT_RADIUS_NODE   = 1.4; // zone de clic des noeuds satellites
+const ACTIVE_RADIUS = 0.85;
+const NODE_RADIUS = 0.4;
+const HIT_RADIUS_ACTIVE = 2.2;
+const HIT_RADIUS_NODE = 1.4;
+const TARGET_DIST = 14;
+const MIN_DIST = 9.0;
+
+
 
 /**
  * Node — Cercle 2D billboard (toujours face caméra)
@@ -47,6 +53,7 @@ const Node = React.memo(({
     onClick,
     distance = 0,
     isLoading,
+    theme,
 }: {
     data: NodeData;
     isActive: boolean;
@@ -54,8 +61,9 @@ const Node = React.memo(({
     onClick: (id: string) => void;
     distance?: number;
     isLoading?: boolean;
+    theme: any;
 }) => {
-    const groupRef  = useRef<THREE.Group>(null);
+    const groupRef = useRef<THREE.Group>(null);
     const currentPos = useRef(new THREE.Vector3().copy(data.startPos));
     const [hovered, setHovered] = useState(false);
 
@@ -70,8 +78,13 @@ const Node = React.memo(({
     const cross2MatRef = useRef<THREE.MeshBasicMaterial>(null);
     const labelRef = useRef<HTMLSpanElement>(null);
 
-    // Opacité de base liée à la distance (ajustée pour être plus intense)
-    const baseOpacity = distance <= 1 ? 1 : Math.max(0.01, 0.6 / Math.pow(distance, 1.8));
+    // Opacité de base liée à la distance (ajustée pour être plus intense, et renforcée en mode clair pour la lisibilité)
+    const isLight = theme.id === 'POETIC_LIGHT';
+    const baseOpacity = distance <= 1 
+        ? 1.0 
+        : isLight 
+            ? Math.max(0.40, 0.85 / Math.pow(distance, 1.2)) 
+            : Math.max(0.01, 0.6 / Math.pow(distance, 1.5));
 
     useFrame(({ camera, clock }) => {
         // Ralentissement de la translation (0.05 -> 0.02)
@@ -107,17 +120,14 @@ const Node = React.memo(({
 
         // Mise à jour du label HTML (couleur et opacité)
         if (labelRef.current) {
-            if (!isActive && distance > 1) {
-                labelRef.current.style.color = `rgba(232, 220, 200, ${currentOpacity})`;
-            } else {
-                labelRef.current.style.color = isActive ? '#F5A623' : '#f2f2f2';
-            }
+            labelRef.current.style.color = isActive ? theme.colors.primary : theme.colors.text;
+            labelRef.current.style.opacity = `${currentOpacity}`;
         }
     });
 
-    const nodeR  = isActive ? ACTIVE_RADIUS : NODE_RADIUS;
-    const hitR   = isActive ? HIT_RADIUS_ACTIVE : HIT_RADIUS_NODE;
-    const glowR  = nodeR * 2.4;
+    const nodeR = isActive ? ACTIVE_RADIUS : NODE_RADIUS;
+    const hitR = isActive ? HIT_RADIUS_ACTIVE : HIT_RADIUS_NODE;
+    const glowR = nodeR * 2.4;
 
     const opacity = distance <= 1 ? 1 : Math.max(0.05, 0.7 / Math.pow(distance, 1.5));
     const formattedLabel = data.label.charAt(0).toUpperCase() + data.label.slice(1).toLowerCase();
@@ -133,11 +143,11 @@ const Node = React.memo(({
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
             </mesh>
 
-            <mesh raycast={() => null}>
+            <mesh raycast={() => null} renderOrder={9}>
                 <circleGeometry args={[glowR, 32]} />
                 <meshBasicMaterial
                     ref={glowMatRef}
-                    color={isActive ? '#F5A623' : '#ffffff'}
+                    color={isActive ? theme.colors.primary : '#ffffff'}
                     transparent
                     opacity={(isActive ? 0.18 : (hovered ? 0.08 : 0.03)) * baseOpacity}
                     blending={THREE.AdditiveBlending}
@@ -146,24 +156,25 @@ const Node = React.memo(({
                 />
             </mesh>
 
-            <mesh raycast={() => null}>
+            <mesh raycast={() => null} renderOrder={10}>
                 <circleGeometry args={[nodeR, 4]} />
                 <meshBasicMaterial
                     ref={circleMatRef}
-                    color={isActive ? '#F5A623' : (hovered ? '#ffffff' : '#e8dcc8')}
+                    color={isActive ? theme.colors.primary : (hovered ? '#ffffff' : theme.colors.secondary)}
                     transparent
                     opacity={baseOpacity}
                     side={THREE.DoubleSide}
+                    depthWrite={false}
                 />
             </mesh>
 
-            {/* Amber hover ring for satellite nodes */}
+            {/* Hover ring for satellite nodes */}
             {!isActive && hovered && (
-                <mesh raycast={() => null}>
+                <mesh raycast={() => null} renderOrder={11}>
                     <ringGeometry args={[nodeR * 1.6, nodeR * 1.9, 24]} />
                     <meshBasicMaterial
                         ref={ringMatRef}
-                        color="#F5A623"
+                        color={theme.colors.primary}
                         transparent
                         opacity={0.5 * baseOpacity}
                         side={THREE.DoubleSide}
@@ -172,17 +183,17 @@ const Node = React.memo(({
                     />
                 </mesh>
             )}
-            
+
             {/* Precision Crosshair on Node */}
             {(isActive || hovered) && (
-                <group rotation={[0, 0, Math.PI / 4]}>
+                <group rotation={[0, 0, Math.PI / 4]} renderOrder={12}>
                     <mesh raycast={() => null}>
                         <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial ref={cross1MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} />
+                        <meshBasicMaterial ref={cross1MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} depthWrite={false} />
                     </mesh>
                     <mesh raycast={() => null} rotation={[0, 0, Math.PI / 2]}>
                         <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial ref={cross2MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} />
+                        <meshBasicMaterial ref={cross2MatRef} color="#ffffff" transparent opacity={0.3 * baseOpacity} depthWrite={false} />
                     </mesh>
                 </group>
             )}
@@ -194,16 +205,13 @@ const Node = React.memo(({
                         display: 'block',
                         pointerEvents: 'none',
                         userSelect: 'none',
-                        color: isActive
-                            ? '#F5A623'
-                            : distance <= 1
-                                ? '#f2f2f2'
-                                : `rgba(232, 220, 200, ${baseOpacity})`,
-                        fontSize: distance === 0 ? '32px' : (distance === 1 ? '18px' : '11px'),
-                        fontWeight: distance <= 1 ? 600 : 400,
-                        fontFamily: "'Space Grotesk', sans-serif",
+                        color: isActive ? theme.colors.primary : theme.colors.text,
+                        fontSize: distance === 0 ? '25px' : (distance === 1 ? '18px' : '18px'),
+                        fontWeight: distance === 0 ? 500 : (distance === 1 ? 300 : 200),
+                        fontFamily: theme.typography.display,
+                        fontStyle: 'italic',
                         letterSpacing: distance <= 1 ? '0.15em' : '0.05em',
-                        textTransform: 'uppercase',
+                        textTransform: 'none',
                         textShadow: isActive
                             ? '0 0 20px rgba(245,166,35,0.6)'
                             : distance <= 1
@@ -211,7 +219,7 @@ const Node = React.memo(({
                                 : 'none',
                         transform: `translate3d(0, ${distance === 0 ? 55 : (distance === 1 ? 35 : 22)}px, 0)`,
                         whiteSpace: 'nowrap',
-                        opacity: 1,
+                        opacity: isActive ? 1.0 : baseOpacity,
                         transition: 'all 0.3s ease-out'
                     }}
                 >
@@ -231,24 +239,26 @@ const Edge = React.memo(({
     nodePositionsRef,
     growFromId,
     distance = 0,
+    theme,
 }: {
     sourceId: string;
     targetId: string;
     nodePositionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
     growFromId: string;
     distance?: number;
+    theme: any;
 }) => {
     const meshRef = useRef<THREE.Mesh>(null);
     const matRef = useRef<THREE.MeshBasicMaterial>(null);
 
     const progress = useRef(0);
 
-    const baseOpacity = distance <= 1 ? 1 : Math.max(0.01, 0.6 / Math.pow(distance, 1.8));
+    const baseOpacity = distance === 0.5 ? 1.0 : Math.max(0.01, 0.6 / Math.pow(distance, 1.5));
 
     useFrame(({ camera }, delta) => {
         const p1 = nodePositionsRef.current.get(sourceId);
         const p2 = nodePositionsRef.current.get(targetId);
-        
+
         if (p1 && p2 && meshRef.current) {
             // Animation du progrès (environ 0.6s)
             if (progress.current < 1) {
@@ -262,7 +272,7 @@ const Edge = React.memo(({
             const direction = new THREE.Vector3().subVectors(targetPos, originPos);
             const fullLength = direction.length();
             const currentLength = fullLength * progress.current;
-            
+
             const dir = direction.clone().normalize();
             meshRef.current.position.copy(originPos).add(dir.clone().multiplyScalar(currentLength * 0.5));
             meshRef.current.quaternion.setFromUnitVectors(
@@ -274,24 +284,29 @@ const Edge = React.memo(({
 
         // --- CALCUL DE L'OPACITÉ DYNAMIQUE SELON LE ZOOM ---
         const zoom = (camera as THREE.OrthographicCamera).zoom;
+        // zoomFactor: 1 quand on est dézoomé au max (6), 0 quand on est au zoom par défaut (25)
         const zoomFactor = 1 - THREE.MathUtils.smoothstep(zoom, 6, 25);
         const currentOpacity = baseOpacity + (1.0 - baseOpacity) * zoomFactor;
 
+        const isLight = theme.id === 'POETIC_LIGHT';
         if (matRef.current) {
-            matRef.current.opacity = currentOpacity * (distance <= 1 ? 0.7 : 0.9);
+            const baseMultiplier = isLight ? 0.8 : 0.4;
+            const activeMultiplier = baseMultiplier + (1.0 - baseMultiplier) * zoomFactor;
+            matRef.current.opacity = distance <= 0.5 ? 1.0 : currentOpacity * activeMultiplier;
         }
     });
 
+    const isLight = theme.id === 'POETIC_LIGHT';
     return (
-        <mesh ref={meshRef}>
+        <mesh ref={meshRef} renderOrder={1}>
             <boxGeometry args={[0.04, 1, 0.04]} />
             <meshBasicMaterial
                 ref={matRef}
-                color={distance <= 1 ? '#F5C878' : '#f0e8d8'}
+                color={distance <= 0.5 ? theme.colors.primary : theme.colors.secondary}
                 transparent
-                opacity={baseOpacity * (distance <= 1 ? 0.7 : 0.9)}
+                opacity={distance <= 0.5 ? 1.0 : baseOpacity * (isLight ? 0.8 : 0.4)}
                 depthWrite={false}
-                blending={THREE.AdditiveBlending}
+                blending={isLight ? THREE.NormalBlending : THREE.AdditiveBlending}
             />
         </mesh>
     );
@@ -338,8 +353,8 @@ function getBestViewDirection(neighbors: THREE.Vector3[]): THREE.Vector3 {
 
     // 3. Déflation de la matrice pour trouver la 2ème direction principale
     const lambda1 = v1.x * (v1.x * mxx + v1.y * mxy + v1.z * mxz) +
-                    v1.y * (v1.x * mxy + v1.y * myy + v1.z * myz) +
-                    v1.z * (v1.x * mxz + v1.y * myz + v1.z * mzz);
+        v1.y * (v1.x * mxy + v1.y * myy + v1.z * myz) +
+        v1.z * (v1.x * mxz + v1.y * myz + v1.z * mzz);
 
     const m2 = [
         [matrix[0][0] - lambda1 * v1.x * v1.x, matrix[0][1] - lambda1 * v1.x * v1.y, matrix[0][2] - lambda1 * v1.x * v1.z],
@@ -352,7 +367,7 @@ function getBestViewDirection(neighbors: THREE.Vector3[]): THREE.Vector3 {
     // 4. La direction optimale est la normale au plan formé par v1 et v2
     // C'est l'axe selon lequel l'étalement est minimal, donc on voit le maximum d'étalement sur l'écran.
     let bestDir = new THREE.Vector3().crossVectors(v1, v2).normalize();
-    
+
     // Si v1 et v2 sont colinéaires (structure 1D), v2 sera nul. On fallback sur n'importe quel axe ortho.
     if (bestDir.length() < 0.1) {
         const arbitrary = Math.abs(v1.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
@@ -363,7 +378,7 @@ function getBestViewDirection(neighbors: THREE.Vector3[]): THREE.Vector3 {
 }
 
 // --- Scène principale ---
-const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, parentsMap = {}, isLoading }: ConstellationProps) => {
+const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, parentsMap = {}, isLoading, theme }: ConstellationProps & { theme: any }) => {
     const { camera } = useThree();
     const [nodes, setNodes] = useState<Map<string, NodeData>>(new Map());
     const [edges, setEdges] = useState<Map<string, EdgeData>>(new Map());
@@ -414,7 +429,7 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                         );
                     }
                 } else if (newNodes.size > 0) {
-                    const radius = 45; 
+                    const radius = 45;
                     const phi = Math.acos(2 * Math.random() - 1);
                     const theta = Math.random() * Math.PI * 2;
                     targetPos.set(radius * Math.sin(phi) * Math.cos(theta), radius * Math.sin(phi) * Math.sin(theta), radius * Math.cos(phi));
@@ -445,56 +460,123 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
 
             const activeNode = newNodes.get(lowerCenter)!;
             const existingPositions = Array.from(newNodes.values()).map(n => n.targetPos);
-            const pushVector = activeNode.targetPos.length() > 0 ? activeNode.targetPos.clone().normalize() : new THREE.Vector3(0, 1, 0);
 
-            relatedWords.forEach(word => {
+            const newWordsToPlace = relatedWords.filter(word => !newNodes.has(word.toLowerCase()));
+            const totalToPlace = newWordsToPlace.length;
+
+            newWordsToPlace.forEach((word, idx) => {
                 const lowerWord = word.toLowerCase();
-                if (!newNodes.has(lowerWord)) {
-                    const radius = 10 + Math.random() * 4;
-                    let bestPos = new THREE.Vector3();
-                    let maxMinDist = -1;
-                    for (let i = 0; i < 8; i++) {
-                        const phi = Math.acos(2 * Math.random() - 1);
-                        const theta = Math.random() * Math.PI * 2;
-                        const candidateOffset = new THREE.Vector3(radius * Math.sin(phi) * Math.cos(theta), radius * Math.sin(phi) * Math.sin(theta), radius * Math.cos(phi));
-                        if (candidateOffset.dot(pushVector) < -0.2 && activeNode.targetPos.length() > 5) { i--; continue; }
-                        const candidatePos = activeNode.targetPos.clone().add(candidateOffset);
-                        let minDist = Infinity;
-                        existingPositions.forEach(p => { minDist = Math.min(minDist, candidatePos.distanceTo(p)); });
-                        if (minDist > maxMinDist) { maxMinDist = minDist; bestPos = candidatePos; }
+                const radius = 13 + Math.random() * 3;
+                let bestPos = new THREE.Vector3();
+                let maxScore = -Infinity;
+
+                // 24 candidates on a 3D sphere (using Fibonacci distribution) to find the most expansive, non-overlapping position
+                for (let i = 0; i < 24; i++) {
+                    const phi = Math.acos(1 - 2 * (i + 0.5) / 24);
+                    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+
+                    const candidateOffset = new THREE.Vector3(
+                        radius * Math.sin(phi) * Math.cos(theta),
+                        radius * Math.sin(phi) * Math.sin(theta),
+                        radius * Math.cos(phi)
+                    );
+
+                    const candidatePos = activeNode.targetPos.clone().add(candidateOffset);
+                    
+                    let minDist = Infinity;
+                    existingPositions.forEach(p => { 
+                        minDist = Math.min(minDist, candidatePos.distanceTo(p)); 
+                    });
+
+                    // Maximize minimum distance to prevent overlap AND favor directions pointing outward from the origin (0,0,0)
+                    const outwardBonus = candidatePos.length() * 0.45;
+                    const score = minDist + outwardBonus;
+
+                    if (score > maxScore) {
+                        maxScore = score;
+                        bestPos = candidatePos;
                     }
-                    newNodes.set(lowerWord, { id: lowerWord, label: word, startPos: activeNode.targetPos.clone(), targetPos: bestPos, parentId: lowerCenter });
-                    existingPositions.push(bestPos);
                 }
+                newNodes.set(lowerWord, { id: lowerWord, label: word, startPos: activeNode.targetPos.clone(), targetPos: bestPos, parentId: lowerCenter });
+                existingPositions.push(bestPos);
             });
 
-            // Relaxation simplifiée
+            // Relaxation 3D Force-Directed (Ressorts + Répulsion) pour garantir la cohérence
             const allNodesList = Array.from(newNodes.values());
-            for (let iter = 0; iter < 10; iter++) {
+
+            for (let iter = 0; iter < 20; iter++) {
+
+                const displacements = new Map<string, THREE.Vector3>();
+                allNodesList.forEach(n => displacements.set(n.id, new THREE.Vector3()));
+
+                // 1. Répulsion entre TOUS les nœuds pour éviter qu'ils soient trop proches (distance min)
+                for (let i = 0; i < allNodesList.length; i++) {
+                    for (let j = i + 1; j < allNodesList.length; j++) {
+                        const n1 = allNodesList[i];
+                        const n2 = allNodesList[j];
+                        const delta = new THREE.Vector3().subVectors(n1.targetPos, n2.targetPos);
+                        const dist = delta.length();
+                        if (dist < MIN_DIST && dist > 0.01) {
+                            const forceMag = (MIN_DIST - dist) * 0.35;
+                            const push = delta.clone().normalize().multiplyScalar(forceMag);
+                            displacements.get(n1.id)!.add(push);
+                            displacements.get(n2.id)!.sub(push);
+                        }
+                    }
+                }
+
+                // 2. Attraction le long des liens directs pour éviter qu'ils soient trop loin (distance max)
                 allNodesList.forEach(n => {
                     if (n.parentId) {
                         const p = newNodes.get(n.parentId);
-                        if (!p) return;
-                        const dist = n.targetPos.distanceTo(p.targetPos);
-                        if (Math.abs(dist - 14) > 1) {
-                            const dir = new THREE.Vector3().subVectors(n.targetPos, p.targetPos).normalize();
-                            const move = dir.multiplyScalar((dist - 14) * 0.2);
-                            n.targetPos.sub(move);
+                        if (p) {
+                            const delta = new THREE.Vector3().subVectors(n.targetPos, p.targetPos);
+                            const dist = delta.length();
+                            if (dist > 0.01) {
+                                const forceMag = (dist - TARGET_DIST) * 0.22;
+                                const pull = delta.clone().normalize().multiplyScalar(forceMag);
+                                displacements.get(n.id)!.sub(pull);
+                                displacements.get(p.id)!.add(pull);
+                            }
                         }
                     }
                 });
+
+                // 3. Application des déplacements (le centre reste ancré pour la stabilité)
+                allNodesList.forEach(n => {
+                    if (n.id === lowerCenter) return;
+                    const disp = displacements.get(n.id)!;
+                    const maxDisp = 2.0;
+                    if (disp.length() > maxDisp) disp.normalize().multiplyScalar(maxDisp);
+                    n.targetPos.add(disp);
+                });
             }
 
-            // BFS Distances
+            // BFS Distances using predicted full adjacency list
             newNodes.forEach(n => { n.distance = 99; });
             const adj = new Map<string, string[]>();
-            newNodes.forEach(n => {
-                if (n.parentId) {
-                    const s = n.parentId; const t = n.id;
-                    if (!adj.has(s)) adj.set(s, []); if (!adj.has(t)) adj.set(t, []);
-                    adj.get(s)!.push(t); adj.get(t)!.push(s);
-                }
+            
+            // 1. Existing edges from state
+            edges.forEach(edge => {
+                const s = edge.source; const t = edge.target;
+                if (!adj.has(s)) adj.set(s, []); if (!adj.has(t)) adj.set(t, []);
+                adj.get(s)!.push(t); adj.get(t)!.push(s);
             });
+            
+            // 2. Magic connection (forceConnectTo)
+            if (forceConnectTo) {
+                const s = lowerCenter; const t = forceConnectTo.toLowerCase();
+                if (!adj.has(s)) adj.set(s, []); if (!adj.has(t)) adj.set(t, []);
+                adj.get(s)!.push(t); adj.get(t)!.push(s);
+            }
+            
+            // 3. New related words connections
+            relatedWords.forEach(w => {
+                const s = lowerCenter; const t = w.toLowerCase();
+                if (!adj.has(s)) adj.set(s, []); if (!adj.has(t)) adj.set(t, []);
+                adj.get(s)!.push(t); adj.get(t)!.push(s);
+            });
+
             const queue: [string, number][] = [[lowerCenter, 0]];
             const visited = new Set<string>([lowerCenter]);
             while (queue.length > 0) {
@@ -551,16 +633,16 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
     }, [centerWord, nodes]);
 
     useFrame(() => {
-        // Translation du groupe (pour centrer le mot actif)
-        if (groupRef.current) groupRef.current.position.lerp(targetGroupOffset, 0.02);
+        // Translation du groupe fluide et amortie pour centrer le concept actif
+        if (groupRef.current) groupRef.current.position.lerp(targetGroupOffset, 0.05);
 
-        // Rotation de la caméra vers la position optimale
+        // Rotation et déplacement fluide de la caméra vers l'angle de vue optimal
         if (isRotating.current) {
-            camera.position.lerp(targetCameraPos.current, 0.02);
+            camera.position.lerp(targetCameraPos.current, 0.045);
             camera.lookAt(0, 0, 0);
-            
-            // Si on est assez proche, on arrête l'auto-rotation
-            if (camera.position.distanceTo(targetCameraPos.current) < 1) {
+
+            // Seuil de proximité pour clore la phase d'auto-rotation
+            if (camera.position.distanceTo(targetCameraPos.current) < 0.2) {
                 isRotating.current = false;
             }
         }
@@ -568,13 +650,14 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
 
     return (
         <>
-            {/* Caméra orthographic = pas de foreshortening, minZoom/maxZoom au lieu de minDistance/maxDistance */}
+            {/* Caméra avec amorti (damping) activé pour des rotations manuelles fluides et organiques */}
             <OrbitControls
                 enablePan={false}
                 enableZoom={true}
+                enableDamping={true}
+                dampingFactor={0.06}
                 minZoom={6}
                 maxZoom={120}
-                dampingFactor={0.05}
             />
             <ambientLight intensity={0.3} />
 
@@ -582,7 +665,8 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                 {Array.from(edges.values()).map(edge => {
                     const sn = nodes.get(edge.source);
                     const tn = nodes.get(edge.target);
-                    const avg = sn && tn ? (sn.distance! + tn.distance!) / 2 : 0;
+                    const isDirect = sn && tn ? (sn.distance === 0 || tn.distance === 0) : false;
+                    const edgeDist = isDirect ? 0.5 : (sn && tn ? Math.max(sn.distance!, tn.distance!) : 2);
                     return (
                         <Edge
                             key={edge.id}
@@ -590,7 +674,8 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                             targetId={edge.target}
                             growFromId={edge.growFrom}
                             nodePositionsRef={nodePositionsRef}
-                            distance={avg}
+                            distance={edgeDist}
+                            theme={theme}
                         />
                     );
                 })}
@@ -604,6 +689,7 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
                         onClick={onWordClick}
                         distance={node.distance}
                         isLoading={isLoading}
+                        theme={theme}
                     />
                 ))}
             </group>
@@ -613,25 +699,26 @@ const GraphScene = ({ centerWord, relatedWords, onWordClick, forceConnectTo, par
 
 // --- Export ---
 export default function Constellation3DV2(props: ConstellationProps) {
+    const theme = THEMES[props.activeTheme] || THEMES.AMBER;
     return (
-        <div className="absolute inset-0 w-full h-full z-0 bg-void overflow-hidden">
+        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden" style={{ backgroundColor: 'var(--theme-bg)' }}>
             <Canvas
                 orthographic
                 camera={{ zoom: 25, position: [0, 0, 500], near: 1, far: 2000 }}
                 dpr={[1, 3]}
-                gl={{ 
-                    antialias: true, 
+                gl={{
+                    antialias: true,
                     powerPreference: "high-performance",
-                    alpha: true 
+                    alpha: true
                 }}
             >
-                <GraphScene {...props} />
+                <GraphScene {...props} theme={theme} />
             </Canvas>
 
             {/* Technical Overlays */}
             <div className="point-grid" />
             <div className="grain-overlay" />
-            
+
             <div className="crosshair-marker crosshair-tl" />
             <div className="crosshair-marker crosshair-tr" />
             <div className="crosshair-marker crosshair-bl" />

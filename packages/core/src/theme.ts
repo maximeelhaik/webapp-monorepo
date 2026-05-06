@@ -119,7 +119,68 @@ export const THEMES: Record<string, ThemeConfig> = {
       boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)',
       buttonShadow: '0 4px 14px 0 rgba(99, 102, 241, 0.39)',
     }
+  },
+  AMBER: {
+    id: 'AMBER',
+    colors: {
+      background: '#000000',
+      backgroundScroll: '#0f0f0f',
+      text: '#f2f2f2',
+      textScroll: '#f2f2f2',
+      primary: '#E5C158',
+      secondary: '#A3843B',
+      card: 'rgba(229, 193, 88, 0.08)',
+      input: '#0f0f0f',
+      border: '#E5C158',
+      placeholder: '#A3843B',
+      caret: '#E5C158',
+    },
+    typography: {
+      display: '"IBM Plex Mono", monospace',
+      body: '"Space Grotesk", sans-serif',
+      inputSize: 'clamp(2rem, 5vw, 4rem)',
+      resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
+      headingTransform: 'uppercase',
+      headingTracking: '0.15em',
+    },
+    ui: {
+      borderRadius: '0px',
+      borderWidth: '1px',
+      boxShadow: 'none',
+      buttonShadow: 'none',
+    }
+  },
+  POETIC_LIGHT: {
+    id: 'POETIC_LIGHT',
+    colors: {
+      background: '#e0dbcfff',
+      backgroundScroll: '#c8c2b3',
+      text: '#151212ff',
+      textScroll: '#181513ff',
+      primary: '#8c6d31',
+      secondary: '#bfa15f',
+      card: 'rgba(140, 109, 49, 0.08)',
+      input: '#c8c2b3',
+      border: '#8c6d31',
+      placeholder: '#8c817a',
+      caret: '#8c6d31',
+    },
+    typography: {
+      display: '"IBM Plex Mono", monospace',
+      body: '"Space Grotesk", sans-serif',
+      inputSize: 'clamp(2rem, 5vw, 4rem)',
+      resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
+      headingTransform: 'uppercase',
+      headingTracking: '0.15em',
+    },
+    ui: {
+      borderRadius: '0px',
+      borderWidth: '1px',
+      boxShadow: 'none',
+      buttonShadow: 'none',
+    }
   }
 };
 
 export type ThemeType = keyof typeof THEMES;
+
