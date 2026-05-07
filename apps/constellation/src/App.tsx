@@ -85,6 +85,50 @@ const logRenderedFonts = () => {
 };
 
 
+const LANGUAGES = {
+  fr: {
+    subtitle: "Cartographie des relations sémantiques.",
+    placeholderInit: "Entrez un mot",
+    placeholderSearch: "Rechercher",
+    btnExplore: "Explorer",
+    btnLoading: "Chargement...",
+    loadingTitle: "Calcul des connexions...",
+    loadingSubtitle: "Analyse en cours",
+    suggestions: ["entropie", "mémoire", "lumière", "système", "origine"],
+    themeAmber: "Ambre",
+    themeLight: "Clair",
+    labelsControl: "Étiquettes",
+    labelsAuto: "Auto",
+    labelsVisible: "Visible",
+    statusLoading: "Chargement",
+    statusLoaded: "Prêt",
+    statusNodes: "Concepts",
+    statusDepth: "Profondeur",
+    errDefault: "Une erreur est survenue. Veuillez réessayer."
+  },
+  en: {
+    subtitle: "A 3D map of semantic relationships.",
+    placeholderInit: "Explore a concept",
+    placeholderSearch: "Search",
+    btnExplore: "Explore",
+    btnLoading: "Loading...",
+    loadingTitle: "Building graph...",
+    loadingSubtitle: "Fetching relations...",
+    suggestions: ["entropy", "memory", "light", "system", "origin"],
+    themeAmber: "Dark",
+    themeLight: "Light",
+    labelsControl: "Labels",
+    labelsAuto: "Auto",
+    labelsVisible: "Visible",
+    statusLoading: "Loading",
+    statusLoaded: "Ready",
+    statusNodes: "Nodes",
+    statusDepth: "Depth",
+    errDefault: "Something went wrong. Try again."
+  }
+};
+
+
 export default function App() {
 
 
@@ -105,10 +149,25 @@ export default function App() {
   const [exploredCache, setExploredCache] = useState<Record<string, string[]>>({});
   const [initialized, setInitialized] = useState(false);
   const [labelsOpaque, setLabelsOpaque] = useState(false);
+  const [lang, setLang] = useState<'fr' | 'en'>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('app-lang');
+      if (stored === 'fr' || stored === 'en') return stored;
+      const browserLang = navigator.language.slice(0, 2);
+      if (browserLang === 'fr' || browserLang === 'en') return browserLang as 'fr' | 'en';
+    }
+    return 'fr';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app-lang', lang);
+  }, [lang]);
+
+  const t = LANGUAGES[lang];
 
 
   // Boot + UI states
-  const [bootComplete, setBootComplete] = useState(false);
+  const [bootComplete, setBootComplete] = useState(true);
   const [amberFlash, setAmberFlash] = useState(false);
   const [activeTheme, setActiveTheme] = useState(ACTIVE_THEME);
 
@@ -373,7 +432,11 @@ export default function App() {
           const data = await r.json();
           console.log(`%c[BRIDGE] 📥 Réception connect:`, 'color: #f472b6; font-size: 10px;', data);
           return data;
-        } catch (err) {
+        } catch (err: any) {
+          if (err.name === 'AbortError') {
+            console.log(`%c[BRIDGE] 🛡️ Requête connect annulée pour "${nextWord}"`, 'color: #94a3b8; font-style: italic;');
+            return { connectedTo: null };
+          }
           console.error("[BRIDGE ERROR]", err);
           return { connectedTo: null };
         }
@@ -560,7 +623,11 @@ export default function App() {
                 return next;
               });
             }
-          } catch (err) {
+          } catch (err: any) {
+            if (err.name === 'AbortError') {
+              console.log(`%c[BRIDGE] 🛡️ Requête connect secondaire annulée pour "${newWord}"`, 'color: #94a3b8; font-style: italic;');
+              return;
+            }
             console.error(`[BRIDGE ERROR for ${newWord}]`, err);
           }
         });
@@ -571,7 +638,7 @@ export default function App() {
         return;
       }
       console.error(`[ERROR] ${Math.round(performance.now() - startTime)}ms:`, error);
-      setErrorMessage(error.message || 'Lien rompu dans la constellation...');
+      setErrorMessage(error.message || t.errDefault);
       setTimeout(() => setErrorMessage(null), 4000);
     } finally {
       setLoading(false);
@@ -724,20 +791,13 @@ export default function App() {
                 style={{ background: 'var(--theme-primary)' }}
               />
 
-              {/* Animated tech brackets around title */}
+              {/* Animated title */}
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: 0.1, duration: 0.8 }}
                 className="flex flex-col items-center gap-3 relative"
               >
-                <div
-                  className="text-[9px] tracking-[0.4em] text-[var(--theme-primary)] opacity-50 uppercase mb-2"
-                  style={{ fontFamily: 'var(--app-font-body)' }}
-                >
-                  SYS.READY // SEMANTIC.ENGINE
-                </div>
-
                 <h1
                   className="font-bold tracking-[0.2em] leading-none select-none app-title"
                   style={{
@@ -749,24 +809,13 @@ export default function App() {
                   }}
                 >
                   Constellation
-                  <span
-                    className="font-light ml-3 align-middle not-italic text-[var(--theme-primary)]"
-                    style={{
-                      fontSize: '0.22em',
-                      letterSpacing: '0.25em',
-                      fontFamily: 'var(--app-font-body)',
-                      fontStyle: 'normal'
-                    }}
-                  >
-
-                  </span>
                 </h1>
 
                 <p
-                  className="opacity-60 select-none tracking-[0.25em] max-w-lg leading-relaxed mt-2 uppercase app-subtitle"
+                  className="opacity-60 select-none tracking-[0.15em] max-w-lg leading-relaxed mt-2 app-subtitle"
                   style={{ fontSize: '11px', fontFamily: 'var(--app-font-body)' }}
                 >
-                  Cartographie sémantique tridimensionnelle de la pensée artificielle
+                  {t.subtitle}
                 </p>
               </motion.div>
 
@@ -779,14 +828,14 @@ export default function App() {
                 <div className="flex items-center relative group">
                   <input
                     type="text"
-                    className="w-full pl-12 pr-5 py-4.5 rounded-none text-[13px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono uppercase"
+                    className="w-full pl-12 pr-5 py-4.5 rounded-none text-[13px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
                     style={{
                       background: 'var(--theme-card)',
                       border: '1px solid var(--theme-primary)',
                       color: 'var(--theme-text)',
                       boxShadow: '0 0 30px rgba(245, 166, 35, 0.05)'
                     }}
-                    placeholder="ENTREZ UN CONCEPT POUR INITIALISER..."
+                    placeholder={t.placeholderInit}
                     value={inputWord}
                     onChange={(e) => setInputWord(e.target.value)}
                     maxLength={25}
@@ -815,7 +864,7 @@ export default function App() {
                       color: 'var(--theme-bg)',
                     }}
                   >
-                    {loading ? 'CHARGEMENT...' : 'EXPLORER'}
+                    {loading ? t.btnLoading : t.btnExplore}
                   </button>
                 </div>
               </motion.form>
@@ -836,18 +885,12 @@ export default function App() {
                         <span className="w-1.5 h-1.5 bg-[var(--theme-primary)] animate-pulse delay-75" />
                         <span className="w-1.5 h-1.5 bg-[var(--theme-primary)] animate-pulse delay-150" />
                         <p
-                          className="text-[10px] tracking-[0.3em] uppercase text-[var(--theme-primary)] ml-2"
+                          className="text-[10px] tracking-[0.15em] text-[var(--theme-primary)] ml-2"
                           style={{ fontFamily: 'var(--app-font-body)' }}
                         >
-                          CONNEXION EN COURS...
+                          {t.loadingTitle}
                         </p>
                       </div>
-                      <p
-                        className="text-[8px] tracking-[0.2em] opacity-40 uppercase"
-                        style={{ fontFamily: 'var(--app-font-body)' }}
-                      >
-                        GÉNÉRATION DU RÉSEAU COGNITIF INITIAL
-                      </p>
                     </motion.div>
                   ) : (
                     <motion.div
@@ -856,7 +899,7 @@ export default function App() {
                       animate={{ opacity: 0.7 }}
                       className="flex flex-wrap gap-2.5 justify-center max-w-md"
                     >
-                      {['COSMOS', 'INTELLIGENCE', 'ALCHIMIE', 'MIND', 'CYBERSPACE'].map((word) => (
+                      {t.suggestions.map((word) => (
                         <button
                           key={word}
                           onClick={() => {
@@ -874,18 +917,33 @@ export default function App() {
                 </AnimatePresence>
               </div>
 
-              {/* Subtle Theme Switcher on Intro Screen */}
-              <button
-                onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
-                className="mt-4 px-3 py-1.5 text-[9px] font-mono tracking-[0.2em] uppercase font-bold hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 app-theme-button"
-                style={{
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  background: 'var(--theme-card)',
-                  color: 'var(--theme-primary)',
-                }}
-              >
-                MODE // {activeTheme === 'AMBER' ? 'GOLDEN CLAIR' : 'DARK AMBRE'}
-              </button>
+              {/* Subtle Switchers on Intro Screen */}
+              <div className="flex gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
+                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 app-theme-button"
+                  style={{
+                    border: '1px solid var(--theme-border)',
+                    background: 'var(--theme-card)',
+                    color: 'var(--theme-text)',
+                  }}
+                >
+                  {activeTheme === 'AMBER' ? t.themeLight : t.themeAmber}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
+                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80"
+                  style={{
+                    border: '1px solid var(--theme-border)',
+                    background: 'var(--theme-card)',
+                    color: 'var(--theme-text)',
+                  }}
+                >
+                  {lang === 'fr' ? 'EN' : 'FR'}
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -920,29 +978,37 @@ export default function App() {
             </h1>
             <div className="flex flex-col gap-0.5 mt-2">
               <p
-                className="text-[10px] opacity-50 select-none tracking-widest uppercase app-subtitle"
-                style={{ fontFamily: 'var(--app-font-body)' }}
+                className="text-[11px] tracking-widest select-none app-details"
+                style={{ color: 'var(--theme-text)', opacity: 0.6, fontFamily: 'var(--app-font-body)' }}
               >
-                SYSTÈME DE CARTOGRAPHIE SÉMANTIQUE
+                {centerWord}
               </p>
-              <p
-                className="text-[9px] tracking-widest select-none uppercase app-details"
-                style={{ color: 'var(--theme-primary)', opacity: 0.6, fontFamily: 'var(--app-font-body)' }}
-              >
-                COORD // [ {centerWord.toUpperCase()} ]
-              </p>
-              <button
-                onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
-                className="mt-3 px-3 py-1.5 text-[9px] font-mono tracking-[0.2em] uppercase font-bold text-left hover:opacity-100 transition-all duration-150 rounded-none w-fit app-theme-button"
-                style={{
-                  border: '1px solid var(--theme-primary)',
-                  background: 'var(--theme-card)',
-                  color: 'var(--theme-primary)',
-                  cursor: 'none'
-                }}
-              >
-                MODE // {activeTheme === 'AMBER' ? 'GOLDEN CLAIR' : 'DARK AMBRE'}
-              </button>
+              <div className="flex gap-2 mt-3 pointer-events-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
+                  className="px-2.5 py-1 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-60 hover:opacity-100 app-theme-button"
+                  style={{
+                    border: '1px solid var(--theme-primary)',
+                    background: 'var(--theme-card)',
+                    color: 'var(--theme-primary)',
+                  }}
+                >
+                  {activeTheme === 'AMBER' ? t.themeLight : t.themeAmber}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
+                  className="px-2.5 py-1 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-60 hover:opacity-100"
+                  style={{
+                    border: '1px solid var(--theme-primary)',
+                    background: 'var(--theme-card)',
+                    color: 'var(--theme-primary)',
+                  }}
+                >
+                  {lang === 'fr' ? 'EN' : 'FR'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -955,13 +1021,13 @@ export default function App() {
             <div className="w-full flex items-center relative group">
               <input
                 type="text"
-                className="w-full pl-11 pr-5 py-3.5 rounded-none text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono uppercase"
+                className="w-full pl-11 pr-5 py-3.5 rounded-none text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
                 style={{
                   background: 'var(--theme-card)',
                   border: '1px solid ' + (inputWord ? 'var(--theme-primary)' : 'rgba(255,255,255,0.1)'),
                   color: 'var(--theme-text)',
                 }}
-                placeholder="RECHERCHER UN CONCEPT..."
+                placeholder={t.placeholderSearch}
                 value={inputWord}
                 onChange={(e) => setInputWord(e.target.value)}
                 maxLength={25}
@@ -996,7 +1062,7 @@ export default function App() {
                   (e.currentTarget as HTMLButtonElement).style.color = 'var(--theme-primary)';
                 }}
               >
-                EXPLORER
+                {t.btnExplore}
               </button>
             </div>
           </motion.form>
@@ -1033,10 +1099,6 @@ export default function App() {
         <footer className="w-full max-w-7xl mx-auto px-8 py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 z-20 font-mono"
           style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
           <div className="flex items-center gap-5 select-none w-full overflow-hidden">
-            <span className="text-[9px] tracking-[0.35em] uppercase font-bold shrink-0"
-              style={{ color: 'var(--theme-text)', opacity: 0.6 }}>
-              PATH
-            </span>
             <div className="flex items-center gap-1 overflow-x-auto flex-1" style={{ scrollbarWidth: 'none' }}>
               {history.map((word, i) => (
                 <div key={`${i}-${word}`} className="flex items-center gap-1">
@@ -1048,11 +1110,11 @@ export default function App() {
                     }
                     onClick={() => handleNavigateWord(word)}
                   >
-                    {word.toUpperCase()}
+                    {word}
                   </span>
                   {i < history.length - 1 && (
                     <span className="text-[10px] font-light select-none shrink-0"
-                      style={{ color: 'var(--theme-primary)', opacity: 0.7 }}>/</span>
+                      style={{ color: 'var(--theme-primary)', opacity: 0.7 }}>·</span>
                   )}
                 </div>
               ))}
@@ -1061,17 +1123,16 @@ export default function App() {
 
           {/* Dynamic status — right side */}
           <div
-            className="flex flex-col items-end gap-0.5 shrink-0 text-[9px] tracking-[0.25em] uppercase select-none app-details"
+            className="flex flex-row items-center gap-4 shrink-0 text-[10px] tracking-[0.15em] select-none app-details"
             style={{ fontFamily: 'var(--app-font-body)' }}
           >
-            <span className={loading ? 'status-scanning' : (relatedWords.length > 0 ? 'status-loaded' : 'status-mapping')}>
-              {loading ? 'SCANNING...' : (relatedWords.length > 0 ? 'LOADED' : 'MAPPING')}
-            </span>
-            <span className={amberFlash ? 'flash-amber' : ''} style={{ color: 'var(--theme-text)', opacity: 0.4 }}>
-              NODES: {allNodesOnMap.length}
-            </span>
-            <span style={{ color: 'var(--theme-text)', opacity: 0.4 }}>
-              DEPTH: {history.length}
+            {loading && (
+              <span className="status-scanning text-[var(--theme-primary)] animate-pulse">
+                {t.statusLoading}
+              </span>
+            )}
+            <span className={amberFlash ? 'flash-amber text-[var(--theme-text)]' : ''} style={{ opacity: 0.5 }}>
+              {t.statusNodes} : {allNodesOnMap.length}
             </span>
           </div>
         </footer>
@@ -1091,11 +1152,11 @@ export default function App() {
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
           >
             <div className="flex flex-col gap-0.5">
-              <span className="text-[8px] tracking-[0.2em] font-mono text-[var(--theme-primary)] uppercase">
-                ÉTIQUETTES
+              <span className="text-[8px] tracking-[0.15em] font-mono text-[var(--theme-primary)] uppercase">
+                {t.labelsControl}
               </span>
-              <span className="text-[9px] tracking-[0.05em] font-mono uppercase opacity-70">
-                {labelsOpaque ? 'OPAQUE (100%)' : 'PAR DÉFAUT'}
+              <span className="text-[9px] tracking-[0.05em] font-mono opacity-70">
+                {labelsOpaque ? t.labelsVisible : t.labelsAuto}
               </span>
             </div>
 
