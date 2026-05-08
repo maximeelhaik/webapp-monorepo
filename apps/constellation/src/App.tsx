@@ -165,7 +165,7 @@ export default function App() {
     return 'fr';
   });
 
-  const useNaming = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'naming';
+  const useNaming = true;
 
   useEffect(() => {
     localStorage.setItem('app-lang', lang);
@@ -339,8 +339,11 @@ export default function App() {
     const lowerCenter = centerWord.toLowerCase();
 
     if (lowerNext === lowerCenter) {
-      if (useNaming) {
-        setShowSatellites(prev => !prev);
+      const nextVal = !showSatellites;
+      setShowSatellites(nextVal);
+      setUserPreferredShowSatellites(nextVal);
+      if (nextVal && (!satelliteBrandables[lowerCenter] || satelliteBrandables[lowerCenter].length === 0)) {
+        handleGenerateSatellites(centerWord);
       }
       return;
     }
@@ -394,6 +397,19 @@ export default function App() {
     // Vérification du cache (insensible à la casse)
     if (exploredCache[lowerNext]) {
       console.log(`%c[Constellation] 🧠 Récupération depuis le cache : "${nextWord}"`, 'color: #10b981; font-weight: bold');
+      
+      const neighbors = new Set<string>();
+      edges.forEach(edge => {
+        const [a, b] = edge.split('|');
+        if (a === lowerNext) neighbors.add(b);
+        if (b === lowerNext) neighbors.add(a);
+      });
+      
+      const cachedWords = exploredCache[lowerNext] || [];
+      const currentNeighbors = Array.from(neighbors).filter(n => cachedWords.map(w => w.toLowerCase()).includes(n.toLowerCase()));
+      
+      const toShow = currentNeighbors.length > 0 ? currentNeighbors : cachedWords.slice(0, 5);
+      setRelatedWords(toShow);
       setInitialized(true); // Active l'interface 3D car les données sont prêtes
       return;
     }
@@ -430,8 +446,9 @@ export default function App() {
           prompt: nextWord, 
           app: 'constellation',
           mode: useNaming ? 'naming' : 'classic',
-          target: 'concepts',
-          conceptsCount: 10
+          target: useNaming ? (showSatellites ? 'both' : 'concepts') : 'concepts',
+          conceptsCount: 10,
+          brandablesCount: 5
         }),
         signal: abortController.signal
       });
@@ -1532,6 +1549,9 @@ export default function App() {
                     const nextVal = !showSatellites;
                     setShowSatellites(nextVal);
                     setUserPreferredShowSatellites(nextVal);
+                    if (nextVal && (!satelliteBrandables[centerWord.toLowerCase()] || satelliteBrandables[centerWord.toLowerCase()].length === 0)) {
+                      handleGenerateSatellites(centerWord);
+                    }
                   }}
                   className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
                   style={{
@@ -1659,8 +1679,22 @@ export default function App() {
             className="flex flex-row items-center gap-4 shrink-0 text-[10px] tracking-[0.15em] select-none app-details"
             style={{ fontFamily: 'var(--app-font-body)' }}
           >
-            {loading && (
-              <span className="status-scanning text-[var(--theme-primary)] animate-pulse">
+            {(loading || loadingConnexes || loadingSatellites) && (
+              <span 
+                className="status-scanning animate-pulse font-bold px-2 py-0.5 uppercase tracking-widest flex items-center gap-1.5"
+                style={{ 
+                  color: loadingSatellites ? '#fbbf24' : (loadingConnexes ? '#3b82f6' : (showSatellites ? '#fbbf24' : '#3b82f6')),
+                  textShadow: loadingSatellites ? '0 0 10px rgba(251, 191, 36, 0.4)' : '0 0 10px rgba(59, 130, 246, 0.4)',
+                  fontSize: '9px',
+                }}
+              >
+                <span 
+                  className="inline-block w-1.5 h-1.5 rounded-full" 
+                  style={{ 
+                    backgroundColor: loadingSatellites ? '#fbbf24' : (loadingConnexes ? '#3b82f6' : (showSatellites ? '#fbbf24' : '#3b82f6')),
+                    boxShadow: loadingSatellites ? '0 0 8px #fbbf24' : '0 0 8px #3b82f6'
+                  }} 
+                />
                 {t.statusLoading}
               </span>
             )}

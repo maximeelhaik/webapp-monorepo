@@ -153,52 +153,43 @@ const Node = React.memo(({
             groupRef.current.position.copy(currentPos.current);
             groupRef.current.quaternion.copy(camera.quaternion);
 
-            // Animation de respiration (pulse) si en cours de chargement et actif
-            if (isActive && isLoading) {
-                const pulse = 1 + Math.sin(clock.elapsedTime * 2) * 0.1;
+            // Animation de respiration (pulse) si en cours de chargement (concept ou connexes ou satellites) et actif
+            if (isActive && (isLoading || loadingConnexes || loadingSatellites)) {
+                const pulse = 1 + Math.sin(clock.elapsedTime * 3) * 0.12;
                 groupRef.current.scale.set(pulse, pulse, pulse);
             } else {
                 groupRef.current.scale.set(1, 1, 1);
             }
         }
 
-        // --- CALCUL DE L'OPACITÉ DYNAMIQUE SELON LE ZOOM ---
-        const zoom = (camera as THREE.OrthographicCamera).zoom;
-        const { defaultZoom, maxSatZoom } = getDynamicZoomSettings();
-        // zoomFactor: 1 quand on est dézoomé au max (6), 0 quand on est au zoom par défaut
-        const zoomFactor = 1 - THREE.MathUtils.smoothstep(zoom, 6, defaultZoom);
-        const currentOpacity = baseOpacity + (1.0 - baseOpacity) * zoomFactor;
-
-        // Satellite specific opacity transition
-        const satZoomFactor = THREE.MathUtils.smoothstep(zoom, 6, maxSatZoom);
-        const satOpacity = satZoomFactor * (showSatellites ? 1.0 : 0.15);
-
+        // --- CALCUL DE L'OPACITÉ DÉTERMINÉE PAR LE SWITCH DIRECT ---
         const nodeOpacity = data.isSatellite 
-            ? satOpacity 
-            : (distance === 0 ? 1.0 : currentOpacity);
+            ? (showSatellites ? 1.0 : 0.1) 
+            : (distance === 0 ? 1.0 : baseOpacity);
 
         const labelTextOpacity = data.isSatellite 
-            ? satOpacity 
+            ? (showSatellites ? 1.0 : 0.1) 
             : (distance === 0 
                 ? 1.0 
-                : (labelsOpaque ? currentOpacity : (distance === 1 ? nodeOpacity : 0.0)));
+                : (labelsOpaque ? baseOpacity : (distance === 1 ? nodeOpacity : 0.0)));
 
         // Mise à jour directe des matériaux pour la performance
         if (circleMatRef.current) {
             circleMatRef.current.opacity = nodeOpacity;
-            if (!isActive) {
-                const baseColorStr = data.isSatellite 
+            const baseColorStr = isActive
+                ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : '#fbbf24') : theme.colors.primary)
+                : (data.isSatellite 
                     ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : '#fbbf24') 
-                    : theme.colors.secondary.slice(0, 7);
-                const c1 = new THREE.Color(hovered ? '#ffffff' : baseColorStr);
-                const c2 = new THREE.Color(theme.colors.primary.slice(0, 7));
-                c1.lerp(c2, zoomFactor);
-                circleMatRef.current.color.copy(c1);
-            }
+                    : (hovered ? '#ffffff' : theme.colors.secondary));
+            circleMatRef.current.color.copy(new THREE.Color(baseColorStr.slice(0, 7)));
         }
         if (glowMatRef.current) {
             const glowBase = isActive ? 0.18 : (hovered ? 0.08 : 0.03);
             glowMatRef.current.opacity = glowBase * nodeOpacity;
+            const bubbleColorStr = isActive
+                ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : '#fbbf24') : theme.colors.primary)
+                : (data.isSatellite ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : '#fbbf24') : '#ffffff');
+            glowMatRef.current.color.copy(new THREE.Color(bubbleColorStr.slice(0, 7)));
         }
         if (ringMatRef.current) ringMatRef.current.opacity = 0.5 * nodeOpacity;
         if (cross1MatRef.current) cross1MatRef.current.opacity = 0.3 * nodeOpacity;
@@ -367,80 +358,46 @@ const Node = React.memo(({
                         </span>
                         
                         <div style={{ display: 'flex', gap: '6px', pointerEvents: 'auto' }}>
-                            {onGenerateConnexesClick && (
+                            {((showSatellites && onGenerateSatellitesClick) || (!showSatellites && onGenerateConnexesClick)) && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onGenerateConnexesClick(data.label);
+                                        if (showSatellites) {
+                                            onGenerateSatellitesClick?.(data.label);
+                                        } else {
+                                            onGenerateConnexesClick?.(data.label);
+                                        }
                                     }}
-                                    title="Générer les mots connexes (étendre le réseau)"
+                                    title={showSatellites ? "Générer de nouveaux satellites" : "Générer les mots connexes (étendre le réseau)"}
                                     className="w-[36px] h-[36px] sm:w-[28px] sm:h-[28px]"
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        border: '1px solid var(--theme-primary)',
+                                        border: showSatellites ? '1px solid #fbbf24' : '1px solid #3b82f6',
                                         background: 'var(--theme-card)',
-                                        color: 'var(--theme-primary)',
+                                        color: showSatellites ? '#fbbf24' : '#3b82f6',
                                         cursor: 'pointer',
                                         fontSize: '14px',
                                         fontWeight: 'bold',
                                         transition: 'all 0.2s ease',
                                         pointerEvents: 'auto',
-                                        boxShadow: '0 0 10px rgba(245, 166, 35, 0.2)',
+                                        boxShadow: showSatellites ? '0 0 10px rgba(251, 191, 36, 0.3)' : '0 0 10px rgba(59, 130, 246, 0.3)',
                                         fontFamily: 'var(--app-font-body)',
                                         borderRadius: '50%'
                                     }}
                                     onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = 'var(--theme-primary)';
+                                        e.currentTarget.style.background = showSatellites ? '#fbbf24' : '#3b82f6';
                                         e.currentTarget.style.color = 'var(--theme-bg)';
-                                        e.currentTarget.style.boxShadow = '0 0 20px rgba(245, 166, 35, 0.6)';
+                                        e.currentTarget.style.boxShadow = showSatellites ? '0 0 20px rgba(251, 191, 36, 0.7)' : '0 0 20px rgba(59, 130, 246, 0.7)';
                                     }}
                                     onMouseLeave={(e) => {
                                         e.currentTarget.style.background = 'var(--theme-card)';
-                                        e.currentTarget.style.color = 'var(--theme-primary)';
-                                        e.currentTarget.style.boxShadow = '0 0 10px rgba(245, 166, 35, 0.2)';
+                                        e.currentTarget.style.color = showSatellites ? '#fbbf24' : '#3b82f6';
+                                        e.currentTarget.style.boxShadow = showSatellites ? '0 0 10px rgba(251, 191, 36, 0.3)' : '0 0 10px rgba(59, 130, 246, 0.3)';
                                     }}
                                 >
-                                    {loadingConnexes ? '...' : '+'}
-                                </button>
-                            )}
-                            {onGenerateSatellitesClick && data.id === data.label.toLowerCase() && (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onGenerateSatellitesClick(data.label);
-                                    }}
-                                    title="Générer de nouveaux satellites"
-                                    className="w-[36px] h-[36px] sm:w-[28px] sm:h-[28px]"
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        border: '1px solid var(--theme-primary)',
-                                        background: 'var(--theme-card)',
-                                        color: 'var(--theme-primary)',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                        fontWeight: 'bold',
-                                        transition: 'all 0.2s ease',
-                                        pointerEvents: 'auto',
-                                        boxShadow: '0 0 10px rgba(245, 166, 35, 0.2)',
-                                        fontFamily: 'var(--app-font-body)',
-                                        borderRadius: '50%'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = 'var(--theme-primary)';
-                                        e.currentTarget.style.color = 'var(--theme-bg)';
-                                        e.currentTarget.style.boxShadow = '0 0 20px rgba(245, 166, 35, 0.6)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'var(--theme-card)';
-                                        e.currentTarget.style.color = 'var(--theme-primary)';
-                                        e.currentTarget.style.boxShadow = '0 0 10px rgba(245, 166, 35, 0.2)';
-                                    }}
-                                >
-                                    {loadingSatellites ? '...' : '+S'}
+                                    {'+'}
                                 </button>
                             )}
                         </div>
@@ -539,33 +496,22 @@ const Edge = React.memo(({
             meshRef.current.scale.set(1, currentLength, 1);
         }
 
-        // --- CALCUL DE L'OPACITÉ DYNAMIQUE SELON LE ZOOM ---
-        const zoom = (camera as THREE.OrthographicCamera).zoom;
-        const { defaultZoom, maxSatZoom } = getDynamicZoomSettings();
-        // zoomFactor: 1 quand on est dézoomé au max (6), 0 quand on est au zoom par défaut
-        const zoomFactor = 1 - THREE.MathUtils.smoothstep(zoom, 6, defaultZoom);
-        const currentOpacity = baseOpacity + (1.0 - baseOpacity) * zoomFactor;
-
+        // --- CALCUL DE L'OPACITÉ DÉTERMINÉE PAR LE SWITCH DIRECT ---
         const isLight = theme.id === 'POETIC_LIGHT';
         if (matRef.current) {
             const baseMultiplier = isLight ? 0.8 : 0.4;
-            const activeMultiplier = baseMultiplier + (1.0 - baseMultiplier) * zoomFactor;
 
             if (isSatEdge) {
-                const satZoomFactor = THREE.MathUtils.smoothstep(zoom, 6, maxSatZoom);
-                matRef.current.opacity = satZoomFactor * (showSatellites ? 0.8 : 0.1);
+                matRef.current.opacity = showSatellites ? 0.8 : 0.1;
             } else {
-                matRef.current.opacity = (distance <= 0.5 && !showSatellites) ? 1.0 : currentOpacity * activeMultiplier;
+                matRef.current.opacity = (distance <= 0.5 && !showSatellites) ? 1.0 : baseOpacity * baseMultiplier;
             }
 
-            // Lerp de la couleur vers la couleur principale (primary) quand on dézoome
             if (isSatEdge) {
                 const c1 = new THREE.Color(theme.id === 'POETIC_LIGHT' ? '#f59e0b' : '#fbbf24');
                 matRef.current.color.copy(c1);
             } else if (distance > 0.5) {
                 const c1 = new THREE.Color(theme.colors.secondary.slice(0, 7));
-                const c2 = new THREE.Color(theme.colors.primary.slice(0, 7));
-                c1.lerp(c2, zoomFactor);
                 matRef.current.color.copy(c1);
             }
         }
@@ -853,13 +799,14 @@ const GraphScene = ({
                 existingPositions.push(bestPos);
             });
 
-            // Placer les satellites brandables autour de l'activeNode de manière compacte et élégante
+            // Placer les satellites brandables de manière répartie et sans superposition via Fibonacci Sphere
+            const totalSats = (satelliteBrandables || []).length;
             (satelliteBrandables || []).forEach((sat, idx) => {
                 const satId = `sat-${sat.name.toLowerCase()}`;
                 if (!newNodes.has(satId)) {
-                    const radius = 4.0 + Math.random() * 1.5; // distance beaucoup plus proche du centre (4.0 - 5.5)
-                    const phi = Math.acos(2 * Math.random() - 1);
-                    const theta = Math.random() * Math.PI * 2;
+                    const radius = 5.0 + Math.random() * 1.5; // distance légèrement plus étalée du centre (5.0 - 6.5)
+                    const phi = Math.acos(1 - 2 * (idx + 0.5) / (totalSats || 5));
+                    const theta = Math.PI * (1 + Math.sqrt(5)) * idx;
                     const candidateOffset = new THREE.Vector3(
                         radius * Math.sin(phi) * Math.cos(theta),
                         radius * Math.sin(phi) * Math.sin(theta),
@@ -908,11 +855,12 @@ const GraphScene = ({
                 activeConnections.add(pair);
             });
 
+            const camDir = camera.position.clone().normalize();
             for (let iter = 0; iter < 20; iter++) {
                 const displacements = new Map<string, THREE.Vector3>();
                 allNodesList.forEach(n => displacements.set(n.id, new THREE.Vector3()));
 
-                // 1. Répulsion entre TOUS les nœuds pour éviter qu'ils soient trop proches (distance min)
+                // 1. Répulsion entre TOUS les nœuds pour éviter qu'ils soient trop proches (en 3D ET en 2D écran de la caméra)
                 for (let i = 0; i < allNodesList.length; i++) {
                     for (let j = i + 1; j < allNodesList.length; j++) {
                         const n1 = allNodesList[i];
@@ -920,12 +868,26 @@ const GraphScene = ({
                         const delta = new THREE.Vector3().subVectors(n1.targetPos, n2.targetPos);
                         const dist = delta.length();
                         const isBothSats = n1.isSatellite && n2.isSatellite;
-                        const minD = isBothSats ? 3.0 : MIN_DIST; // Répulsion plus douce entre satellites pour une constellation harmonieuse
+                        const minD = isBothSats ? 3.0 : MIN_DIST;
+                        
+                        // 1a. Répulsion 3D standard
                         if (dist < minD && dist > 0.01) {
                             const forceMag = (minD - dist) * 0.35;
                             const push = delta.clone().normalize().multiplyScalar(forceMag);
                             displacements.get(n1.id)!.add(push);
                             displacements.get(n2.id)!.sub(push);
+                        }
+
+                        // 1b. Évitement de la superposition du point de vue de la caméra (Répulsion 2D écran)
+                        const depthDist = delta.dot(camDir);
+                        const planeDelta = delta.clone().sub(camDir.clone().multiplyScalar(depthDist));
+                        const planeDist = planeDelta.length();
+                        const minPlaneD = isBothSats ? 4.5 : MIN_DIST * 0.95;
+                        if (planeDist < minPlaneD && planeDist > 0.01) {
+                            const planeForceMag = (minPlaneD - planeDist) * 0.45;
+                            const planePush = planeDelta.clone().normalize().multiplyScalar(planeForceMag);
+                            displacements.get(n1.id)!.add(planePush);
+                            displacements.get(n2.id)!.sub(planePush);
                         }
                     }
                 }
@@ -1058,7 +1020,8 @@ const GraphScene = ({
             const displacements = new Map<string, THREE.Vector3>();
             allNodesList.forEach(n => displacements.set(n.id, new THREE.Vector3()));
 
-            // 1. Répulsion temps réel entre tous les nœuds
+            // 1. Répulsion temps réel entre tous les nœuds (en 3D ET en 2D écran de la caméra)
+            const camDir = camera.position.clone().normalize();
             for (let i = 0; i < allNodesList.length; i++) {
                 for (let j = i + 1; j < allNodesList.length; j++) {
                     const n1 = allNodesList[i];
@@ -1067,11 +1030,25 @@ const GraphScene = ({
                     const dist = delta.length();
                     const isBothSats = n1.isSatellite && n2.isSatellite;
                     const minD = isBothSats ? 3.0 : MIN_DIST;
+                    
+                    // Répulsion 3D standard
                     if (dist < minD && dist > 0.01) {
                         const forceMag = (minD - dist) * 0.04; // force modérée pour une transition lisse
                         const push = delta.clone().normalize().multiplyScalar(forceMag);
                         displacements.get(n1.id)!.add(push);
                         displacements.get(n2.id)!.sub(push);
+                    }
+
+                    // Évitement de la superposition du point de vue de la caméra (Répulsion 2D écran)
+                    const depthDist = delta.dot(camDir);
+                    const planeDelta = delta.clone().sub(camDir.clone().multiplyScalar(depthDist));
+                    const planeDist = planeDelta.length();
+                    const minPlaneD = isBothSats ? 4.5 : MIN_DIST * 0.95;
+                    if (planeDist < minPlaneD && planeDist > 0.01) {
+                        const planeForceMag = (minPlaneD - planeDist) * 0.05; // force douce temps réel
+                        const planePush = planeDelta.clone().normalize().multiplyScalar(planeForceMag);
+                        displacements.get(n1.id)!.add(planePush);
+                        displacements.get(n2.id)!.sub(planePush);
                     }
                 }
             }
