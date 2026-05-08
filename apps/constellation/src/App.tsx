@@ -137,6 +137,8 @@ export default function App() {
   const [relatedWords, setRelatedWords] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingConnexes, setLoadingConnexes] = useState(false);
+  const [loadingSatellites, setLoadingSatellites] = useState(false);
   const [inputWord, setInputWord] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [allNodesOnMap, setAllNodesOnMap] = useState<string[]>([]);
@@ -147,8 +149,12 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchedWordRef = useRef<string | null>(null);
   const [exploredCache, setExploredCache] = useState<Record<string, string[]>>({});
+  const [satelliteBrandables, setSatelliteBrandables] = useState<Record<string, { name: string; desc: string }[]>>({});
+  const [satelliteReserve, setSatelliteReserve] = useState<Record<string, { name: string; desc: string }[]>>({});
   const [initialized, setInitialized] = useState(false);
-  const [labelsOpaque, setLabelsOpaque] = useState(false);
+  const [labelsOpaque, setLabelsOpaque] = useState(true); // Par défaut en mode étiquette visible
+  const [showSatellites, setShowSatellites] = useState(true);
+  const [userPreferredShowSatellites, setUserPreferredShowSatellites] = useState(true);
   const [lang, setLang] = useState<'fr' | 'en'>(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('app-lang');
@@ -158,6 +164,8 @@ export default function App() {
     }
     return 'fr';
   });
+
+  const useNaming = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'naming';
 
   useEffect(() => {
     localStorage.setItem('app-lang', lang);
@@ -326,8 +334,17 @@ export default function App() {
   const handleNavigateWord = async (nextWord: string, isSearch: boolean = false) => {
     if (!nextWord.trim()) return;
 
+    const wasInSatelliteMode = showSatellites;
     const lowerNext = nextWord.toLowerCase();
     const lowerCenter = centerWord.toLowerCase();
+
+    if (lowerNext === lowerCenter) {
+      if (useNaming) {
+        setShowSatellites(prev => !prev);
+      }
+      return;
+    }
+
     const initialNodes = [...allNodesOnMap];
 
     // Empêcher les doubles appels (ex: clic DOM + clic R3F simultanés)
@@ -377,7 +394,6 @@ export default function App() {
     // Vérification du cache (insensible à la casse)
     if (exploredCache[lowerNext]) {
       console.log(`%c[Constellation] 🧠 Récupération depuis le cache : "${nextWord}"`, 'color: #10b981; font-weight: bold');
-      setRelatedWords(exploredCache[lowerNext]);
       setInitialized(true); // Active l'interface 3D car les données sont prêtes
       return;
     }
@@ -410,13 +426,19 @@ export default function App() {
       const generatePromise = fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: nextWord, app: 'constellation' }),
+        body: JSON.stringify({ 
+          prompt: nextWord, 
+          app: 'constellation',
+          mode: useNaming ? 'naming' : 'classic',
+          target: 'concepts',
+          conceptsCount: 10
+        }),
         signal: abortController.signal
       });
 
       const connectPromise = shouldCheckConnect ? (async () => {
         const body = {
-          word: nextWord,
+          words: [nextWord],
           existingWords: allNodesOnMap,
           seeds: seeds // Mots de départ pour contexte scalable
         };
@@ -435,37 +457,38 @@ export default function App() {
         } catch (err: any) {
           if (err.name === 'AbortError') {
             console.log(`%c[BRIDGE] 🛡️ Requête connect annulée pour "${nextWord}"`, 'color: #94a3b8; font-style: italic;');
-            return { connectedTo: null };
+            return { connections: {} };
           }
           console.error("[BRIDGE ERROR]", err);
-          return { connectedTo: null };
+          return { connections: {} };
         }
-      })() : Promise.resolve({ connectedTo: null });
+      })() : Promise.resolve({ connections: {} });
 
       // On n'attend plus connectPromise pour lancer le stream de generate
       const response = await generatePromise;
 
       connectPromise.then(connectData => {
-        if (connectData && connectData.connectedTo) {
-          console.log(`%c[BRIDGE] 🌉 Connexion magique trouvée : "${nextWord}" <-> "${connectData.connectedTo}"`, 'color: #f472b6; font-weight: bold;');
+        if (connectData && connectData.connections && connectData.connections[nextWord]) {
+          const connectedTo = connectData.connections[nextWord];
+          console.log(`%c[BRIDGE] 🌉 Connexion magique trouvée : "${nextWord}" <-> "${connectedTo}"`, 'color: #f472b6; font-weight: bold;');
 
-          setForceConnectTo(connectData.connectedTo);
+          setForceConnectTo(connectedTo);
 
           setEdges(prev => {
             const next = new Set(prev);
-            const pair = [nextWord.toLowerCase(), connectData.connectedTo.toLowerCase()].sort().join('|');
+            const pair = [nextWord.toLowerCase(), connectedTo.toLowerCase()].sort().join('|');
             next.add(pair);
             return next;
           });
 
           setParentsMap(prev => {
             const lowerTarget = nextWord.toLowerCase();
-            const lowerParent = connectData.connectedTo.toLowerCase();
+            const lowerParent = connectedTo.toLowerCase();
 
             // On ne définit le parent que si le mot n'en a pas et n'est pas le premier seed
             const firstSeed = seeds[0] ? seeds[0].toLowerCase() : '';
             if (!prev[lowerTarget] && lowerTarget !== firstSeed) {
-              return { ...prev, [lowerTarget]: connectData.connectedTo };
+              return { ...prev, [lowerTarget]: connectedTo };
             }
             return prev;
           });
@@ -507,8 +530,17 @@ export default function App() {
 
           console.log(`%cChunk ${chunkCount}:`, 'color: #8b5cf6; font-weight: bold;', chunkValue);
 
-          const parts = fullText.split(/[|\n]/);
-          const wordsToDisplay = done ? parts : parts.slice(0, -1);
+          let conceptsText = fullText;
+          let brandablesText = "";
+
+          if (fullText.includes("===")) {
+            const splitMode = fullText.split("===");
+            conceptsText = splitMode[0];
+            brandablesText = splitMode[1] || "";
+          }
+
+          const parts = conceptsText.split(/[|\n]/);
+          const wordsToDisplay = (done && !conceptsText.endsWith('|')) ? parts : parts.slice(0, -1);
 
           const rawWords = wordsToDisplay
             .map(w => w.trim().toLowerCase())
@@ -523,33 +555,7 @@ export default function App() {
           finalWords = Array.from(new Set(rawWords)).slice(0, 10);
 
           if (finalWords.length > 0) {
-            setRelatedWords(finalWords);
             setInitialized(true); // Active l'affichage du graphe 3D dès que les premiers mots sont prêts
-
-            setEdges(prev => {
-              const next = new Set(prev);
-              const lowerNextWord = nextWord.toLowerCase();
-              finalWords.forEach(w => {
-                const pair = [lowerNextWord, w.toLowerCase()].sort().join('|');
-                next.add(pair);
-              });
-              return next;
-            });
-
-            // Mettre à jour parentsMap pour les nouveaux mots uniquement (visualisation 3D)
-            setParentsMap(prev => {
-              const nextParents = { ...prev };
-              const lowerNextWord = nextWord.toLowerCase();
-
-              const firstSeed = seeds[0] ? seeds[0].toLowerCase() : '';
-              finalWords.forEach(w => {
-                const lw = w.toLowerCase();
-                if (lw !== firstSeed && lw !== lowerNextWord && !nextParents[lw]) {
-                  nextParents[lw] = nextWord;
-                }
-              });
-              return nextParents;
-            });
 
             // Mettre à jour le casing map pour les related words aussi
             setCasingMap(prev => {
@@ -559,8 +565,29 @@ export default function App() {
               });
               return next;
             });
+          }
 
-            setAllNodesOnMap(prev => Array.from(new Set([...prev, ...finalWords, nextWord])));
+          // Gérer la partie Brandables (Satellites)
+          if (useNaming && brandablesText) {
+            const brandableItems: { name: string; desc: string }[] = [];
+            const rawBrandableParts = brandablesText.split(/[|\n]/);
+            rawBrandableParts.forEach(item => {
+              const cleaned = item.trim();
+              if (cleaned && cleaned.includes(":")) {
+                const parts = cleaned.split(":");
+                const bName = parts[0].trim().toLowerCase();
+                const bDesc = parts.slice(1).join(":").trim();
+                if (bName && bDesc && bName !== nextWord.toLowerCase() && !bName.includes("===")) {
+                  brandableItems.push({ name: bName, desc: bDesc });
+                }
+              }
+            });
+            if (brandableItems.length > 0) {
+              setSatelliteBrandables(prev => ({
+                ...prev,
+                [nextWord.toLowerCase()]: brandableItems
+              }));
+            }
           }
         }
       }
@@ -572,66 +599,73 @@ export default function App() {
           ...prev,
           [nextWord.toLowerCase()]: finalWords
         }));
+
+        // Déployer automatiquement les 5 premiers concepts connexes
+        const toShow = finalWords.slice(0, 5);
+
+        setRelatedWords(prev => Array.from(new Set([...prev, ...toShow])));
+
+        setEdges(prev => {
+          const next = new Set(prev);
+          toShow.forEach(w => {
+            const pair = [nextWord.toLowerCase(), w].sort().join('|');
+            next.add(pair);
+          });
+          return next;
+        });
+
+        setParentsMap(prev => {
+          const nextParents = { ...prev };
+          const firstSeed = seeds[0] ? seeds[0].toLowerCase() : '';
+          toShow.forEach(w => {
+            if (w !== firstSeed && w !== nextWord.toLowerCase() && !nextParents[w]) {
+              nextParents[w] = nextWord;
+            }
+          });
+          return nextParents;
+        });
+
+        setAllNodesOnMap(prev => Array.from(new Set([...prev, ...toShow])));
+
+        // Lancer la connexion sémantique secondaire en batch pour ces 5 nouveaux mots (désactivé pour éviter les structures en diamant et le recroquevillement)
+        /*
+        if (initialized && allNodesOnMap.length > 0) {
+          console.log(`%c[BRIDGE] 🛰️ Analyse de connectivité secondaire automatique pour ${toShow.length} connexes...`, 'color: #f472b6; font-weight: bold;');
+          fetch('/api/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              words: toShow,
+              existingWords: [...allNodesOnMap, ...toShow],
+              seeds: seeds
+            })
+          })
+          .then(r => r.json())
+          .then(connectData => {
+            if (connectData && connectData.connections) {
+              setEdges(prev => {
+                const nextEdges = new Set(prev);
+                Object.entries(connectData.connections).forEach(([w, target]) => {
+                  if (target) {
+                    console.log(`%c[BRIDGE] 🌉 Connexion secondaire trouvée : "${w}" <-> "${target}"`, 'color: #f472b6; font-weight: bold;');
+                    const pair = [w.toLowerCase(), (target as string).toLowerCase()].sort().join('|');
+                    nextEdges.add(pair);
+                  }
+                });
+                return nextEdges;
+              });
+            }
+          })
+          .catch(err => console.error("[SECONDARY CONNECT ERROR]", err));
+        }
+        */
       }
 
       setInitialized(true); // Active le graphe 3D au cas où
       console.log(`%c[CONSTELLATION] ✅ Graphe étendu: [${finalWords.join(', ')}]`, 'color: #10b981; font-weight: bold;');
       console.log(`%c[CONSTELLATION] ⏱️ Temps total: ${Math.round(performance.now() - startTime)}ms`, 'color: #94a3b8;');
 
-      // --- INTERCONNEXION SÉMANTIQUE DES NOUVELLES CRÉATIONS ---
-      // Pour chaque mot sémantique nouvellement créé, on cherche s'il possède
-      // des affinités fortes avec d'autres mots existants de la constellation.
-      const newlyCreatedWords = finalWords.filter(
-        w => !initialNodes.some(initWord => initWord.toLowerCase() === w.toLowerCase())
-      );
 
-      if (newlyCreatedWords.length > 0 && (initialNodes.length > 0 || finalWords.length > 1)) {
-        console.log(`%c[BRIDGE] 🛰️ Analyse de connectivité pour ${newlyCreatedWords.length} nouvelles créations...`, 'color: #f472b6; font-weight: bold;');
-        
-        newlyCreatedWords.forEach(async (newWord) => {
-          // Mots existants éligibles : tous les mots actuellement sur la carte sauf le mot lui-même et son parent direct (nextWord)
-          const eligibleExisting = Array.from(new Set([
-            ...initialNodes,
-            ...finalWords,
-            nextWord
-          ])).filter(w => w.toLowerCase() !== newWord.toLowerCase() && w.toLowerCase() !== nextWord.toLowerCase());
-
-          if (eligibleExisting.length === 0) return;
-
-          try {
-            const body = {
-              word: newWord,
-              existingWords: eligibleExisting,
-              seeds: seeds
-            };
-
-            const r = await fetch('/api/connect', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-              signal: abortController.signal
-            });
-            const connectData = await r.json();
-
-            if (connectData && connectData.connectedTo) {
-              console.log(`%c[BRIDGE] 🌉 Connexion secondaire trouvée : "${newWord}" <-> "${connectData.connectedTo}"`, 'color: #f472b6; font-weight: bold;');
-
-              setEdges(prev => {
-                const next = new Set(prev);
-                const pair = [newWord.toLowerCase(), connectData.connectedTo.toLowerCase()].sort().join('|');
-                next.add(pair);
-                return next;
-              });
-            }
-          } catch (err: any) {
-            if (err.name === 'AbortError') {
-              console.log(`%c[BRIDGE] 🛡️ Requête connect secondaire annulée pour "${newWord}"`, 'color: #94a3b8; font-style: italic;');
-              return;
-            }
-            console.error(`[BRIDGE ERROR for ${newWord}]`, err);
-          }
-        });
-      }
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('[NETWORK] Requête annulée.');
@@ -646,7 +680,423 @@ export default function App() {
     }
   };
 
-  // Navigation avec les flèches gauche/droite dans le fil d'Ariane
+  const handleGenerateSatellites = async (word: string) => {
+    if (!word) return;
+    const lowerWord = word.toLowerCase();
+    setLoadingSatellites(true);
+
+    try {
+      console.log(`%c[SATELLITES] 🛰️ Début génération satellites pour : "${word}"`, 'color: #3b82f6; font-weight: bold; font-size: 11px;');
+
+      const existingNamesSet = new Set((satelliteBrandables[lowerWord] || []).map(b => b.name.toLowerCase()));
+      const unusedBrandables = (satelliteReserve[lowerWord] || []).filter(b => !existingNamesSet.has(b.name.toLowerCase()));
+      let newBrandablesToUse: {name: string; desc: string}[] = [];
+
+      console.log(`%c[SATELLITES] 📊 État de la réserve locale pour "${word}" : ${unusedBrandables.length} disponibles / 5 requis`, 'color: #94a3b8; font-style: italic;');
+
+      if (unusedBrandables.length >= 5) {
+        newBrandablesToUse = unusedBrandables.slice(0, 5);
+        console.log(`%c[SATELLITES] 🟢 RÉSERVE UTILISÉE : 5 satellites piochés instantanément (sans IA). Reste en réserve: ${unusedBrandables.length - 5}`, 'color: #22c55e; font-weight: bold;');
+      } else {
+        const excludeList = Array.from(new Set([
+          ...Array.from(existingNamesSet),
+          ...(satelliteReserve[lowerWord] || []).map(b => b.name.toLowerCase())
+        ]));
+
+        console.log(`%c[SATELLITES] 📡 APPEL IA REQUIS : Demande de 15 satellites (Exclus: ${excludeList.length} mots)`, 'color: #f59e0b; font-weight: bold;');
+
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            prompt: word, 
+            app: 'constellation',
+            mode: 'naming', // Toujours naming pour satellites
+            target: 'brandables',
+            brandablesCount: 15,
+            exclude: excludeList
+          })
+        });
+
+        if (!response.ok) throw new Error(`Erreur serveur satellites (${response.status})`);
+        
+        const responseText = await response.text();
+        const brandableItems: { name: string; desc: string }[] = [];
+        const rawBrandableParts = responseText.split(/[|\n]/);
+        
+        const currentReserveSet = new Set(excludeList);
+
+        rawBrandableParts.forEach(item => {
+          const cleaned = item.trim();
+          if (cleaned && cleaned.includes(":")) {
+            const parts = cleaned.split(":");
+            const bName = parts[0].trim().toLowerCase();
+            const bDesc = parts.slice(1).join(":").trim();
+            if (bName && bDesc && bName !== lowerWord && !bName.includes("===")) {
+              if (!currentReserveSet.has(bName)) {
+                brandableItems.push({ name: bName, desc: bDesc });
+                currentReserveSet.add(bName);
+              }
+            }
+          }
+        });
+
+        console.log(`%c[SATELLITES] 📥 IA RÉPONSE : ${brandableItems.length} satellites générés avec succès.`, 'color: #10b981; font-weight: bold;');
+
+        if (brandableItems.length > 0) {
+          setSatelliteReserve(prev => {
+            const current = prev[lowerWord] || [];
+            return {
+              ...prev,
+              [lowerWord]: [...current, ...brandableItems]
+            };
+          });
+        }
+        
+        const allUnused = [...unusedBrandables, ...brandableItems];
+        newBrandablesToUse = allUnused.slice(0, 5);
+        console.log(`%c[SATELLITES] ✨ Affichage des 5 nouveaux satellites. Stock restant en réserve: ${allUnused.length - newBrandablesToUse.length}`, 'color: #10b981;');
+      }
+
+      if (newBrandablesToUse.length > 0) {
+        setSatelliteBrandables(prev => {
+          const current = prev[lowerWord] || [];
+          return {
+            ...prev,
+            [lowerWord]: [...current, ...newBrandablesToUse]
+          };
+        });
+        setShowSatellites(true);
+        setUserPreferredShowSatellites(true);
+      } else {
+        console.log(`%c[CONSTELLATION] ℹ️ Aucun nouveau satellite trouvé pour "${word}"`, 'color: #94a3b8;');
+      }
+    } catch (err) {
+      console.error("[SATELLITES GENERATION ERROR]", err);
+    } finally {
+      setLoadingSatellites(false);
+    }
+  };
+
+  // Génération automatique de satellites si on est en mode satellite et que le nœud n'en a pas
+  useEffect(() => {
+    if (showSatellites && centerWord) {
+      const lowerCenter = centerWord.toLowerCase();
+      const hasSatellites = satelliteBrandables[lowerCenter] && satelliteBrandables[lowerCenter].length > 0;
+      const isGenerating = loadingSatellites;
+      if (!hasSatellites && !isGenerating) {
+        console.log(`%c[AUTO-SATELLITES] 🛰️ Aucun satellite trouvé pour "${centerWord}" en mode satellite, génération automatique...`, 'color: #3b82f6; font-weight: bold;');
+        handleGenerateSatellites(centerWord);
+      }
+    }
+  }, [showSatellites, centerWord, satelliteBrandables, loadingSatellites]);
+
+  const handleGenerateConnexes = async (word: string) => {
+    if (!word) return;
+    const lowerWord = word.toLowerCase();
+    setLoadingConnexes(true);
+
+    try {
+      console.log(`%c[CONNEXES] 🛰️ Début génération connexes pour : "${word}"`, 'color: #3b82f6; font-weight: bold; font-size: 11px;');
+
+      const unusedConcepts = (exploredCache[lowerWord] || []).filter(w => !allNodesOnMap.map(a => a.toLowerCase()).includes(w));
+      let newWordsToUse: string[] = [];
+
+      console.log(`%c[CONNEXES] 📊 État de la réserve locale pour "${word}" : ${unusedConcepts.length} disponibles / 5 requis`, 'color: #94a3b8; font-style: italic;');
+
+      if (unusedConcepts.length >= 5) {
+        newWordsToUse = unusedConcepts.slice(0, 5);
+        console.log(`%c[CONNEXES] 🟢 RÉSERVE UTILISÉE : 5 connexes piochés instantanément (sans IA). Reste en réserve: ${unusedConcepts.length - 5}`, 'color: #22c55e; font-weight: bold;');
+      } else {
+        const neighbors = new Set<string>();
+        edges.forEach(edge => {
+          const [a, b] = edge.split('|');
+          if (a === lowerWord) neighbors.add(b);
+          if (b === lowerWord) neighbors.add(a);
+        });
+
+        const alreadyKnown = new Set([
+          ...(exploredCache[lowerWord] || []),
+          ...Array.from(neighbors),
+        ]);
+
+        console.log(`%c[CONNEXES] 📡 APPEL IA REQUIS : Demande de 10 connexes (Exclus: ${alreadyKnown.size} mots)`, 'color: #f59e0b; font-weight: bold;');
+
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            prompt: word, 
+            app: 'constellation',
+            mode: useNaming ? 'naming' : 'classic',
+            target: 'concepts',
+            conceptsCount: 10,
+            exclude: Array.from(alreadyKnown)
+          })
+        });
+
+        if (!response.ok) throw new Error(`Erreur serveur connexes (${response.status})`);
+        
+        const responseText = await response.text();
+        const parts = responseText.split(/[|\n]/);
+        const rawWords = parts
+          .map(w => w.trim().toLowerCase())
+          .filter(w => {
+            if (!w || w === lowerWord) return false;
+            if (/^[-—*]|\d+\./.test(w)) return false;
+            if (w.length > 25 || w.split(/\s+/).length > 2) return false;
+            if (alreadyKnown.has(w)) return false;
+            return true;
+          });
+
+        const newGeneratedWords = Array.from(new Set(rawWords)).slice(0, 10);
+        console.log(`%c[CONNEXES] 📥 IA RÉPONSE : ${newGeneratedWords.length} connexes générés avec succès.`, 'color: #10b981; font-weight: bold;');
+        
+        if (newGeneratedWords.length > 0) {
+          setExploredCache(prev => {
+            const currentCacheWords = prev[lowerWord] || [];
+            return { ...prev, [lowerWord]: Array.from(new Set([...currentCacheWords, ...newGeneratedWords])) };
+          });
+        }
+        
+        const allUnused = [...unusedConcepts, ...newGeneratedWords];
+        newWordsToUse = Array.from(new Set(allUnused)).slice(0, 5);
+        console.log(`%c[CONNEXES] ✨ Affichage des 5 nouveaux connexes. Stock restant en réserve: ${allUnused.length - newWordsToUse.length}`, 'color: #10b981;');
+      }
+
+      if (newWordsToUse.length > 0) {
+        // N'ajouter que les nouveaux mots au graphe
+        setRelatedWords(prev => Array.from(new Set([...prev, ...newWordsToUse])));
+
+        // Enregistrer les liaisons primaires
+        setEdges(prev => {
+          const next = new Set(prev);
+          newWordsToUse.forEach(w => {
+            const pair = [lowerWord, w].sort().join('|');
+            next.add(pair);
+          });
+          return next;
+        });
+
+        // Définir le parent de ces nouveaux nœuds s'ils n'en ont pas
+        setParentsMap(prev => {
+          const nextParents = { ...prev };
+          const firstSeed = seeds[0] ? seeds[0].toLowerCase() : '';
+          newWordsToUse.forEach(w => {
+            if (w !== firstSeed && w !== lowerWord && !nextParents[w]) {
+              nextParents[w] = word;
+            }
+          });
+          return nextParents;
+        });
+
+        // Mettre à jour le casing map pour les nouveaux mots
+        setCasingMap(prev => {
+          const next = { ...prev };
+          newWordsToUse.forEach(w => {
+            if (!next[w]) {
+              next[w] = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+            }
+          });
+          return next;
+        });
+
+        // Ajouter ces nouveaux nœuds connexes à la carte générale
+        setAllNodesOnMap(prev => Array.from(new Set([...prev, ...newWordsToUse])));
+
+        // Activer automatiquement le mode concepts pour afficher ce qu'on vient de créer
+        setShowSatellites(false);
+        setUserPreferredShowSatellites(false);
+
+        // --- INTERCONNEXION SÉMANTIQUE SECONDAIRE DES CONNEXES BATCH --- (désactivé pour éviter les structures en diamant et le recroquevillement)
+        /*
+        const initialNodes = allNodesOnMap;
+        const newlyCreatedWords = newWordsToUse.filter(
+          w => !initialNodes.some(initWord => initWord.toLowerCase() === w)
+        );
+
+        if (newlyCreatedWords.length > 0) {
+          console.log(`%c[BRIDGE] 🛰️ Analyse de connectivité secondaire pour ${newlyCreatedWords.length} connexes...`, 'color: #f472b6; font-weight: bold;');
+          
+          const eligibleExisting = Array.from(new Set([
+            ...initialNodes,
+            ...newWordsToUse,
+            word
+          ])).filter(w => !newlyCreatedWords.includes(w.toLowerCase()) && w.toLowerCase() !== lowerWord);
+
+          if (eligibleExisting.length > 0) {
+            try {
+              const body = {
+                words: newlyCreatedWords,
+                existingWords: eligibleExisting,
+                seeds: seeds
+              };
+
+              const r = await fetch('/api/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+              const connectData = await r.json();
+
+              if (connectData && connectData.connections) {
+                setEdges(prev => {
+                  const next = new Set(prev);
+                  Object.entries(connectData.connections).forEach(([newWord, target]) => {
+                    if (target) {
+                      console.log(`%c[BRIDGE] 🌉 Connexion secondaire trouvée : "${newWord}" <-> "${target}"`, 'color: #f472b6; font-weight: bold;');
+                      const pair = [newWord.toLowerCase(), (target as string).toLowerCase()].sort().join('|');
+                      next.add(pair);
+                    }
+                  });
+                  return next;
+                });
+              }
+            } catch (err: any) {
+              console.error(`[BRIDGE ERROR BATCH]`, err);
+            }
+          }
+        }
+        */
+      } else {
+        console.log(`%c[CONSTELLATION] ℹ️ Aucun nouveau connexe trouvé pour "${word}" (tous déjà présents)`, 'color: #94a3b8;');
+      }
+    } catch (err) {
+      console.error("[CONNEXES GENERATION ERROR]", err);
+    } finally {
+      setLoadingConnexes(false);
+    }
+  };
+
+  const handleZoomChange = (zoom: number) => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const maxSatZoom = isMobile ? 10 : 18;
+    if (zoom <= maxSatZoom) {
+      if (showSatellites) {
+        setShowSatellites(false);
+      }
+    } else {
+      if (showSatellites !== userPreferredShowSatellites) {
+        setShowSatellites(userPreferredShowSatellites);
+      }
+    }
+  };
+
+  const handleDeleteNode = useCallback((wordToDelete: string) => {
+    if (!wordToDelete) return;
+    const lowerTarget = wordToDelete.toLowerCase();
+
+    // 1. Trouver tous les descendants récursivement (fils)
+    const descendants = new Set<string>();
+    const queue = [lowerTarget];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      Object.entries(parentsMap).forEach(([childLower, parent]) => {
+        if (parent.toLowerCase() === current && !descendants.has(childLower)) {
+          descendants.add(childLower);
+          queue.push(childLower);
+        }
+      });
+    }
+
+    const nodesToDelete = new Set([lowerTarget, ...descendants]);
+
+    // 2. Déterminer le nouveau centerWord si le mot supprimé est le centerWord actuel
+    let nextCenter: string | null = null;
+    if (lowerTarget === centerWord.toLowerCase()) {
+      // Priorité 1 : Le parent du mot actuel
+      const parentName = parentsMap[lowerTarget];
+      if (parentName && !nodesToDelete.has(parentName.toLowerCase())) {
+        nextCenter = parentName;
+      } else {
+        // Priorité 2 : Le mot précédent dans l'historique
+        const lowerHistory = history.map(w => w.toLowerCase());
+        const centerIdx = lowerHistory.indexOf(lowerTarget);
+        if (centerIdx > 0) {
+          for (let i = centerIdx - 1; i >= 0; i--) {
+            if (!nodesToDelete.has(lowerHistory[i])) {
+              nextCenter = history[i];
+              break;
+            }
+          }
+        }
+
+        // Priorité 3 : Première graine (seed) restante ou n'importe quel concept restant
+        if (!nextCenter) {
+          const remainingSeeds = seeds.filter(w => !nodesToDelete.has(w.toLowerCase()));
+          if (remainingSeeds.length > 0) {
+            nextCenter = remainingSeeds[0];
+          } else {
+            const remainingNodes = allNodesOnMap.filter(w => !nodesToDelete.has(w.toLowerCase()));
+            if (remainingNodes.length > 0) {
+              nextCenter = remainingNodes[0];
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Mettre à jour tous les états de l'application
+    const remainingNodes = allNodesOnMap.filter(w => !nodesToDelete.has(w.toLowerCase()));
+    setAllNodesOnMap(remainingNodes);
+
+    setEdges(prev => {
+      const next = new Set<string>();
+      prev.forEach(edgeStr => {
+        const [a, b] = edgeStr.split('|');
+        if (!nodesToDelete.has(a.toLowerCase()) && !nodesToDelete.has(b.toLowerCase())) {
+          next.add(edgeStr);
+        }
+      });
+      return next;
+    });
+
+    setParentsMap(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(childLower => {
+        const parentLower = next[childLower].toLowerCase();
+        if (nodesToDelete.has(childLower) || nodesToDelete.has(parentLower)) {
+          delete next[childLower];
+        }
+      });
+      return next;
+    });
+
+    setSeeds(prev => prev.filter(w => !nodesToDelete.has(w.toLowerCase())));
+    setHistory(prev => prev.filter(w => !nodesToDelete.has(w.toLowerCase())));
+
+    setExploredCache(prev => {
+      const next = { ...prev };
+      nodesToDelete.forEach(lower => {
+        delete next[lower];
+      });
+      Object.keys(next).forEach(key => {
+        next[key] = next[key].filter(w => !nodesToDelete.has(w.toLowerCase()));
+      });
+      return next;
+    });
+
+    if (lowerTarget === centerWord.toLowerCase()) {
+      if (nextCenter) {
+        setCenterWord(nextCenter);
+        const lowerNext = nextCenter.toLowerCase();
+        if (exploredCache[lowerNext]) {
+          setRelatedWords(exploredCache[lowerNext]);
+        } else {
+          setRelatedWords([]);
+          handleNavigateWord(nextCenter);
+        }
+      } else {
+        setCenterWord('');
+        setRelatedWords([]);
+        setInitialized(false);
+      }
+    } else {
+      setRelatedWords(prev => prev.filter(w => !nodesToDelete.has(w.toLowerCase())));
+    }
+  }, [centerWord, parentsMap, history, seeds, allNodesOnMap, exploredCache, handleNavigateWord]);
+
+  // Navigation avec les flèches gauche/droite dans le fil d'Ariane, et suppression de nœuds
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -672,12 +1122,17 @@ export default function App() {
           e.preventDefault();
           handleNavigateWord(history[currentIndex + 1]);
         }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (centerWord) {
+          e.preventDefault();
+          handleDeleteNode(centerWord);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [history, centerWord, handleNavigateWord]);
+  }, [history, centerWord, handleNavigateWord, handleDeleteNode]);
 
 
   const handleCustomJump = (e: React.FormEvent) => {
@@ -770,7 +1225,15 @@ export default function App() {
           nodeCount={allNodesOnMap.length}
           activeTheme={activeTheme}
           labelsOpaque={labelsOpaque}
+          showSatellites={showSatellites}
           externalEdges={edges}
+          allNodesOnMap={allNodesOnMap}
+          satelliteBrandables={satelliteBrandables[centerWord.toLowerCase()] || []}
+          onGenerateConnexesClick={handleGenerateConnexes}
+          loadingConnexes={loadingConnexes}
+          onGenerateSatellitesClick={useNaming ? handleGenerateSatellites : undefined}
+          loadingSatellites={loadingSatellites}
+          onZoomChange={handleZoomChange}
         />
       )}
 
@@ -811,6 +1274,21 @@ export default function App() {
                   Constellation
                 </h1>
 
+                {useNaming && (
+                  <span
+                    className="font-mono text-[9px] sm:text-[11px] tracking-[0.3em] uppercase px-4 py-1.5 mt-2 border select-none"
+                    style={{
+                      borderColor: 'var(--theme-primary)',
+                      color: 'var(--theme-primary)',
+                      backgroundColor: 'rgba(229, 193, 88, 0.08)',
+                      fontFamily: 'var(--app-font-body)',
+                      letterSpacing: '0.25em'
+                    }}
+                  >
+                    NAMING ASSISTANT
+                  </span>
+                )}
+
                 <p
                   className="opacity-60 select-none tracking-[0.15em] max-w-lg leading-relaxed mt-2 app-subtitle"
                   style={{ fontSize: '11px', fontFamily: 'var(--app-font-body)' }}
@@ -823,12 +1301,12 @@ export default function App() {
               <motion.form
                 layoutId="search-form"
                 onSubmit={handleCustomJump}
-                className="w-full max-w-lg mt-6 pointer-events-auto relative z-10"
+                className="w-full max-w-lg mt-4 sm:mt-6 pointer-events-auto relative z-10"
               >
                 <div className="flex items-center relative group">
                   <input
                     type="text"
-                    className="w-full pl-12 pr-5 py-4.5 rounded-none text-[13px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
+                    className="w-full pl-12 pr-5 py-3 sm:py-4 rounded-none text-[13px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
                     style={{
                       background: 'var(--theme-card)',
                       border: '1px solid var(--theme-primary)',
@@ -854,7 +1332,7 @@ export default function App() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-8 py-4.5 text-[12px] font-mono tracking-widest uppercase transition-all duration-200 shrink-0 font-bold"
+                    className="px-6 sm:px-8 py-3 sm:py-4 text-[11px] sm:text-[12px] font-mono tracking-widest uppercase transition-all duration-200 shrink-0 font-bold"
                     style={{
                       borderTop: '1px solid var(--theme-primary)',
                       borderBottom: '1px solid var(--theme-primary)',
@@ -897,7 +1375,8 @@ export default function App() {
                       key="suggestions"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 0.7 }}
-                      className="flex flex-wrap gap-2.5 justify-center max-w-md"
+                      className="flex overflow-x-auto sm:flex-wrap gap-2.5 justify-start sm:justify-center w-full max-w-full sm:max-w-md pb-2 px-4 sm:px-0"
+                      style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
                     >
                       {t.suggestions.map((word) => (
                         <button
@@ -906,7 +1385,7 @@ export default function App() {
                             setInputWord(word);
                             handleNavigateWord(word, true);
                           }}
-                          className="px-3 py-1 text-[9px] font-mono tracking-[0.15em] border border-dashed border-[var(--theme-primary)] border-opacity-30 hover:border-solid hover:border-opacity-100 text-[var(--theme-text)] opacity-60 hover:opacity-100 hover:text-[var(--theme-primary)] transition-all duration-150 rounded-none cursor-none"
+                          className="px-3 py-1 text-[9px] font-mono tracking-[0.15em] border border-dashed border-[var(--theme-primary)] border-opacity-30 hover:border-solid hover:border-opacity-100 text-[var(--theme-text)] opacity-60 hover:opacity-100 hover:text-[var(--theme-primary)] transition-all duration-150 rounded-none cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center shrink-0"
                           style={{ background: 'transparent' }}
                         >
                           {word}
@@ -922,7 +1401,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
-                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 app-theme-button"
+                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 app-theme-button min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
                   style={{
                     border: '1px solid var(--theme-border)',
                     background: 'var(--theme-card)',
@@ -934,7 +1413,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
-                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80"
+                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
                   style={{
                     border: '1px solid var(--theme-border)',
                     background: 'var(--theme-card)',
@@ -951,121 +1430,175 @@ export default function App() {
 
       {/* Header (visible when initialized) */}
       {initialized && (
-        <header className="w-full max-w-7xl mx-auto px-8 pt-8 pb-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 z-20 pointer-events-none">
-          <div className="pointer-events-auto">
+        <header className="w-full max-w-7xl mx-auto px-4 sm:px-8 pt-[max(env(safe-area-inset-top),1rem)] sm:pt-[max(env(safe-area-inset-top),2rem)] pb-2 sm:pb-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-6 z-20 pointer-events-none">
+          <div className="pointer-events-auto flex flex-col gap-1">
             <h1
               className="font-bold tracking-[-0.02em] leading-none select-none app-title"
               style={{
                 fontFamily: 'var(--app-font-display)',
                 fontStyle: 'italic',
-                fontSize: 'clamp(1.9rem, 4vw, 2.9rem)',
+                fontSize: 'clamp(1.6rem, 3.5vw, 2.5rem)',
                 color: 'var(--theme-text)'
               }}
             >
               Constellation
-              <span
-                className="font-light ml-2 align-middle not-italic"
-                style={{
-                  fontSize: '0.32em',
-                  color: 'var(--theme-primary)',
-                  letterSpacing: '0.15em',
-                  fontFamily: 'var(--app-font-body)',
-                  fontStyle: 'normal'
-                }}
-              >
-
-              </span>
+              {useNaming && (
+                <span
+                  className="font-mono ml-3 px-2 py-0.5 align-middle rounded text-[10px] tracking-widest uppercase border"
+                  style={{
+                    borderColor: 'var(--theme-primary)',
+                    color: 'var(--theme-primary)',
+                    backgroundColor: 'rgba(229, 193, 88, 0.08)',
+                    fontFamily: 'var(--app-font-body)'
+                  }}
+                >
+                  NAMING
+                </span>
+              )}
             </h1>
-            <div className="flex flex-col gap-0.5 mt-2">
-              <p
-                className="text-[11px] tracking-widest select-none app-details"
-                style={{ color: 'var(--theme-text)', opacity: 0.6, fontFamily: 'var(--app-font-body)' }}
-              >
-                {centerWord}
-              </p>
-              <div className="flex gap-2 mt-3 pointer-events-auto">
-                <button
-                  type="button"
-                  onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
-                  className="px-2.5 py-1 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-60 hover:opacity-100 app-theme-button"
-                  style={{
-                    border: '1px solid var(--theme-primary)',
-                    background: 'var(--theme-card)',
-                    color: 'var(--theme-primary)',
-                  }}
-                >
-                  {activeTheme === 'AMBER' ? t.themeLight : t.themeAmber}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
-                  className="px-2.5 py-1 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-60 hover:opacity-100"
-                  style={{
-                    border: '1px solid var(--theme-primary)',
-                    background: 'var(--theme-card)',
-                    color: 'var(--theme-primary)',
-                  }}
-                >
-                  {lang === 'fr' ? 'EN' : 'FR'}
-                </button>
-              </div>
+            <div className="flex items-center gap-2 text-[9px] tracking-widest font-mono uppercase opacity-50 ml-1">
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${loading ? 'bg-[var(--theme-primary)] animate-pulse' : 'bg-green-400'}`} />
+              <span style={{ color: 'var(--theme-text)' }}>{loading ? t.statusLoading : t.statusLoaded}</span>
             </div>
           </div>
 
-          {/* Header Search Form (animated via Framer Motion shared layoutId) */}
-          <motion.form
-            layoutId="search-form"
-            onSubmit={handleCustomJump}
-            className="relative flex items-center max-w-sm w-full pointer-events-auto"
+          {/* Reworked Premium Control Deck */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full md:w-auto pointer-events-auto bg-[var(--theme-card)] border border-[var(--theme-border)] px-3 py-2 sm:px-5 sm:py-3 relative backdrop-blur-md"
+            style={{
+              boxShadow: '0 10px 40px -10px rgba(0,0,0,0.5)',
+              borderWidth: 'var(--theme-border-width)',
+              borderRadius: 'var(--theme-radius)'
+            }}
           >
-            <div className="w-full flex items-center relative group">
-              <input
-                type="text"
-                className="w-full pl-11 pr-5 py-3.5 rounded-none text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
-                style={{
-                  background: 'var(--theme-card)',
-                  border: '1px solid ' + (inputWord ? 'var(--theme-primary)' : 'rgba(255,255,255,0.1)'),
-                  color: 'var(--theme-text)',
-                }}
-                placeholder={t.placeholderSearch}
-                value={inputWord}
-                onChange={(e) => setInputWord(e.target.value)}
-                maxLength={25}
-              />
-              <svg
-                className="absolute left-4 w-4 h-4 transition-colors pointer-events-none"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                style={{ stroke: inputWord ? 'var(--theme-primary)' : 'rgba(242,242,242,0.4)' }}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+            {/* Search Input Container */}
+            <motion.form
+              layoutId="search-form"
+              onSubmit={handleCustomJump}
+              className="relative flex items-center min-w-[200px] sm:min-w-[220px] flex-1 sm:flex-initial"
+            >
+              <div className="w-full flex items-center relative group">
+                <input
+                  type="text"
+                  className="w-full pl-9 pr-3 py-2 bg-transparent text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.05em] tracking-[0.1em] font-mono border-b border-[var(--theme-border)] min-h-[44px] sm:min-h-[unset]"
+                  style={{
+                    borderColor: inputWord ? 'var(--theme-primary)' : 'var(--theme-border)',
+                    color: 'var(--theme-text)',
+                  }}
+                  placeholder={t.placeholderSearch}
+                  value={inputWord}
+                  onChange={(e) => setInputWord(e.target.value)}
+                  maxLength={25}
+                />
+                <svg
+                  className="absolute left-2.5 w-4 h-4 transition-colors pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  style={{ stroke: inputWord ? 'var(--theme-primary)' : 'rgba(242,242,242,0.4)' }}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </motion.form>
+
+            {/* Subtle vertical separator */}
+            <div className="hidden sm:block w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
+
+            {/* Tool buttons */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap max-w-full shrink-0" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+              {/* Toggle Labels */}
               <button
-                type="submit"
-                className="px-6 py-3.5 text-[11px] font-mono tracking-widest uppercase transition-all duration-150 shrink-0 font-bold"
+                type="button"
+                onClick={() => setLabelsOpaque(!labelsOpaque)}
+                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
                 style={{
-                  borderTop: '1px solid ' + (inputWord ? 'var(--theme-primary)' : 'rgba(255,255,255,0.1)'),
-                  borderBottom: '1px solid ' + (inputWord ? 'var(--theme-primary)' : 'rgba(255,255,255,0.1)'),
-                  borderRight: '1px solid ' + (inputWord ? 'var(--theme-primary)' : 'rgba(255,255,255,0.1)'),
-                  borderLeft: 'none',
-                  background: 'var(--theme-card)',
-                  color: 'var(--theme-primary)',
+                  borderColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
+                  background: labelsOpaque ? 'rgba(229, 193, 88, 0.08)' : 'transparent',
+                  color: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-text)',
+                  opacity: labelsOpaque ? 1.0 : 0.6,
                 }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--theme-primary)';
-                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--theme-bg)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--theme-card)';
-                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--theme-primary)';
-                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                onMouseLeave={e => { if (!labelsOpaque) e.currentTarget.style.opacity = '0.6'; }}
               >
-                {t.btnExplore}
+                {t.labelsControl}: {labelsOpaque ? t.labelsVisible : t.labelsAuto}
+              </button>
+
+              {/* Toggle Satellites / Focus (if useNaming) */}
+              {useNaming && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !showSatellites;
+                    setShowSatellites(nextVal);
+                    setUserPreferredShowSatellites(nextVal);
+                  }}
+                  className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                  style={{
+                    borderColor: showSatellites ? 'var(--theme-primary)' : 'var(--theme-border)',
+                    background: showSatellites ? 'rgba(229, 193, 88, 0.08)' : 'transparent',
+                    color: showSatellites ? 'var(--theme-primary)' : 'var(--theme-text)',
+                    opacity: showSatellites ? 1.0 : 0.6,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                  onMouseLeave={e => { if (!showSatellites) e.currentTarget.style.opacity = '0.6'; }}
+                >
+                  Focus: {showSatellites ? 'Sats' : 'Sem'}
+                </button>
+              )}
+
+              {/* Theme Toggle */}
+              <button
+                type="button"
+                onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : 'AMBER')}
+                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none app-theme-button min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                style={{
+                  borderColor: 'var(--theme-border)',
+                  background: 'transparent',
+                  color: 'var(--theme-text)',
+                  opacity: 0.6,
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+              >
+                {activeTheme === 'AMBER' ? t.themeLight : t.themeAmber}
+              </button>
+
+              {/* Language Toggle */}
+              <button
+                type="button"
+                onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
+                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                style={{
+                  borderColor: 'var(--theme-border)',
+                  background: 'transparent',
+                  color: 'var(--theme-text)',
+                  opacity: 0.6,
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+              >
+                {lang === 'fr' ? 'EN' : 'FR'}
+              </button>
+
+              {/* Delete Active Node */}
+              <button
+                type="button"
+                onClick={() => handleDeleteNode(centerWord)}
+                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none hover:bg-[#ff4444] hover:text-white hover:border-[#ff4444] min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                style={{
+                  borderColor: 'rgba(255, 68, 68, 0.4)',
+                  background: 'transparent',
+                  color: '#ff4444',
+                  opacity: 0.75,
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}
+              >
+                {lang === 'fr' ? 'Suppr' : 'Del'}
               </button>
             </div>
-          </motion.form>
+          </div>
         </header>
       )}
 
@@ -1096,7 +1629,7 @@ export default function App() {
 
       {/* Footer — Breadcrumb (visible when initialized) */}
       {initialized && (
-        <footer className="w-full max-w-7xl mx-auto px-8 py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 z-20 font-mono"
+        <footer className="w-full max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-[max(env(safe-area-inset-bottom),1.5rem)] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 z-20 font-mono"
           style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
           <div className="flex items-center gap-5 select-none w-full overflow-hidden">
             <div className="flex items-center gap-1 overflow-x-auto flex-1" style={{ scrollbarWidth: 'none' }}>
@@ -1138,47 +1671,7 @@ export default function App() {
         </footer>
       )}
 
-      {/* Floating Map Labels Control */}
-      {initialized && centerWord && (
-        <div className="fixed right-6 top-1/2 -translate-y-1/2 z-40 pointer-events-auto flex flex-col gap-2">
-          <motion.div
-            className="flex items-center gap-3 p-3.5 border rounded bg-[var(--theme-card)] shadow-2xl backdrop-blur-md select-none"
-            style={{
-              borderColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
-              boxShadow: 'var(--theme-shadow)',
-            }}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          >
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[8px] tracking-[0.15em] font-mono text-[var(--theme-primary)] uppercase">
-                {t.labelsControl}
-              </span>
-              <span className="text-[9px] tracking-[0.05em] font-mono opacity-70">
-                {labelsOpaque ? t.labelsVisible : t.labelsAuto}
-              </span>
-            </div>
-
-            {/* Styled Switch Button */}
-            <button
-              type="button"
-              onClick={() => setLabelsOpaque(!labelsOpaque)}
-              className="relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none focus:outline-none"
-              style={{
-                backgroundColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
-              }}
-            >
-              <span
-                className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--theme-card)] shadow ring-0 transition duration-200 ease-in-out"
-                style={{
-                  transform: labelsOpaque ? 'translateX(20px)' : 'translateX(0px)',
-                }}
-              />
-            </button>
-          </motion.div>
-        </div>
-      )}
+      {/* Floating Map Labels unified in premium header control deck */}
 
       {/* Custom cursor */}
       {isFinePointer && (

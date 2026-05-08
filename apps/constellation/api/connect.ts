@@ -23,13 +23,13 @@ export default async function handler(req: Request) {
     });
   }
 
-  let word = "";
+  let words: string[] = [];
   let existingWords: string[] = [];
   let seeds: string[] = [];
 
   try {
     const body = await req.json();
-    word = body.word;
+    words = body.words || (body.word ? [body.word] : []);
     existingWords = body.existingWords || [];
     seeds = body.seeds || [];
   } catch (e) {
@@ -39,31 +39,36 @@ export default async function handler(req: Request) {
     });
   }
 
-  if (!word || existingWords.length === 0) {
-    return new Response(JSON.stringify({ connectedTo: null }), {
+  if (words.length === 0 || existingWords.length === 0) {
+    return new Response(JSON.stringify({ connections: {} }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
-  console.log(`[CONNECT] 🔍 Recherche lien pour: "${word}" parmi ${existingWords.length} mots.`);
+  console.log(`[CONNECT] 🔍 Recherche lien pour ${words.length} mots parmi ${existingWords.length} mots existants.`);
   const startTimer = Date.now();
 
-  const systemInstruction = `Tu es un expert en connectivité sémantique pour une application de carte mentale 3D. 
-  Ta mission : Identifier si le mot utilisateur se connecte intelligemment à un mot déjà existant.
-  
+  const systemInstruction = `Tu es un expert en connectivité sémantique pour une application de cartographie mentale 3D (Constellation).
+  Ta mission : Déterminer si de nouveaux mots-concepts doivent être connectés à des mots existants sur la carte pour former des régions sémantiques claires et aérées.
+
   CONTEXTE DE LA CARTE :
   Mots racines : ${seeds.join(', ')}
 
-  RÈGLES CRITIQUES :
-  1. Cherche un lien sémantique FORT (synonyme, catégorie, complémentarité, cause/effet).
-  2. Exemples de liens attendus : (argent -> salaire), (avion -> voyage), (nuit -> sommeil).
-  3. Si tu trouves un lien, renvoie UNIQUEMENT le mot de la liste tel quel.
-  4. Si AUCUN lien n'est évident, renvoie 'null'.
-  5. Réponds avec un SEUL MOT. Pas de phrase, pas de ponctuation.
-  
-  LISTE DES MOTS DISPONIBLES :
-  ${existingWords.join(', ')}`;
+  RÈGLES DE SÉLECTIVITÉ STRICTES (POUR ÉVITER LE SÉISME ET L'ENCOMBREMENT VISUEL) :
+  1. SOIS EXTRÊMEMENT SÉLECTIF : Ne crée un lien que s'il y a une relation sémantique MAJEURE, DIRECTE et INDISPENSABLE (ex: synonyme parfait, antonyme direct, ou hyperonyme/hyponyme immédiat). Renvoie "null" dans tous les autres cas (complémentarité lâche, association d'idées générale, contexte partagé). Un graphe aéré est beaucoup plus beau et lisible qu'un graphe sur-connecté.
+  2. ÉVITE LES STRUCTURES "EN DIAMANT" (DIAMOND STRUCTURES) : Si un nouveau mot (ex: "Sentiment") est déjà connecté à son mot parent (ex: "Passion"), ne le connecte pas à un synonyme de ce parent (ex: "Amour") présent dans les mots existants. Ils sont déjà reliés indirectement. Les connexions redondantes ruinent la structure en régions.
+  3. PAS DE TRIANGLES INUTILES : Si le nouveau mot est déjà connecté à son parent direct sur la carte, ne crée pas de lien direct avec le parent du parent (le grand-parent) ou avec les frères/sœurs du parent.
+
+  LISTE DES MOTS EXISTANTS (CIBLES POSSIBLES) :
+  ${existingWords.join(', ')}
+
+  FORMAT DE RÉPONSE STRICT :
+  Renvoie UNIQUEMENT un JSON valide au format exact suivant, sans aucun autre texte ni balises markdown :
+  {
+    "motNouveau1": "motExistantCible",
+    "motNouveau2": "null"
+  }`;
 
   try {
     const aiInstance = getAiInstance();
@@ -77,11 +82,12 @@ export default async function handler(req: Request) {
       try {
         result = await aiInstance.models.generateContent({
           model: getModel(),
-          contents: `Mot utilisateur : "${word}"`,
+          contents: `Nouveaux mots à connecter : ${JSON.stringify(words)}`,
           config: {
             systemInstruction,
-            temperature: 0.2,
-            maxOutputTokens: 500,
+            temperature: 0.1,
+            maxOutputTokens: 800,
+            responseMimeType: "application/json"
           }
         });
         break;
@@ -123,33 +129,37 @@ export default async function handler(req: Request) {
       console.error("[CONNECT] Erreur extraction texte:", e);
     }
 
-    rawText = rawText.trim().replace(/[".]/g, ""); // Nettoyage minimal
+    rawText = rawText.trim();
     console.log(`[CONNECT] 🤖 Réponse IA: "${rawText}"`);
 
-    if (rawText.toLowerCase() === 'null') {
-      return new Response(JSON.stringify({ connectedTo: null }), {
-        status: 200,
-        headers: { 
-          'Content-Type': 'application/json', 
-          'Access-Control-Allow-Origin': '*',
-          'Server-Timing': `gemini-connect;dur=${geminiDuration};desc="Gemini Connect Call"`
-        }
-      });
+    let parsedResult: Record<string, string | null> = {};
+    try {
+      let jsonStr = rawText;
+      if (jsonStr.startsWith('```json')) {
+        jsonStr = jsonStr.replace(/```json/g, '').replace(/```/g, '');
+      }
+      parsedResult = JSON.parse(jsonStr.trim());
+    } catch (e) {
+      console.error("[CONNECT] Erreur parsing JSON:", e, rawText);
     }
 
-    // Normalisation pour comparaison robuste
     const normalize = (s: string) => s.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const normalizedResponse = normalize(rawText);
+    const finalConnections: Record<string, string | null> = {};
 
-    const connectedTo = existingWords.find(w => normalize(w) === normalizedResponse) || null;
-
-    if (connectedTo) {
-      console.log(`[CONNECT] ✅ Lien validé: "${word}" -> "${connectedTo}"`);
-    } else {
-      console.log(`[CONNECT] ⚠️ Réponse hors-liste ou invalide: "${rawText}"`);
+    for (const [newWord, target] of Object.entries(parsedResult)) {
+      if (target && target.toLowerCase() !== 'null') {
+         const normalizedTarget = normalize(target);
+         const connectedTo = existingWords.find(w => normalize(w) === normalizedTarget) || null;
+         finalConnections[newWord] = connectedTo;
+         if (connectedTo) {
+           console.log(`[CONNECT] ✅ Lien validé: "${newWord}" -> "${connectedTo}"`);
+         }
+      } else {
+         finalConnections[newWord] = null;
+      }
     }
 
-    return new Response(JSON.stringify({ connectedTo }), {
+    return new Response(JSON.stringify({ connections: finalConnections }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
@@ -161,7 +171,7 @@ export default async function handler(req: Request) {
     console.error(`[CONNECT ERROR]`, error);
     const endTimer = Date.now();
     const duration = endTimer - startTimer;
-    return new Response(JSON.stringify({ connectedTo: null, error: error.message }), {
+    return new Response(JSON.stringify({ connections: {}, error: error.message }), {
       status: 200, // On renvoie 200 même en cas d'erreur IA pour ne pas bloquer le flux principal
       headers: { 
         'Content-Type': 'application/json',

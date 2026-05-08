@@ -9,7 +9,7 @@
    ║  --app-font-body    : Sous-titres (S.M.S) + Secondaires     ║
    ║                                                              ║
    ║  Police display actuelle : DM Mono (Bold Italic)            ║
-   ║  Police body actuelle    : Inter                             ║
+   ║  Police body actuelle    : Schibsted Grotesk                 ║
    ╚══════════════════════════════════════════════════════════════╝
 
    Pour changer une police :
@@ -29,10 +29,7 @@
 
   /* ─── POLICE BODY (Sous-titres S.M.S, Éléments secondaires) ─────────── */
   /*     Options disponibles (décommenter la ligne souhaitée) :              */
-  /*--app-font-body: "Inter", sans-serif; */
-  /* --app-font-body: "Space Grotesk", sans-serif;  */
-  --app-font-body: "Inter Tight", sans-serif;
-  /* --app-font-body: "Syne", sans-serif;           */
+  --app-font-body: "Schibsted Grotesk", sans-serif;
 
   /* ─── Opacités des overlays (ajuster sans toucher à la logique) ───────── */
   --app-scanline-opacity: 0.015;
