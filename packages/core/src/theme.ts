@@ -150,6 +150,36 @@ export const THEMES: Record<string, ThemeConfig> = {
       buttonShadow: 'none',
     }
   },
+  RAW_MINIMAL: {
+    id: 'RAW_MINIMAL',
+    colors: {
+      background: '#000000',
+      backgroundScroll: '#050505',
+      text: '#ffffff',
+      textScroll: '#ffffff',
+      primary: '#ffffff',
+      secondary: '#737373',
+      card: 'rgba(255, 255, 255, 0.03)',
+      input: '#000000',
+      border: '#262626',
+      placeholder: '#525252',
+      caret: '#ffffff',
+    },
+    typography: {
+      display: '"DM Mono", monospace',
+      body: '"Schibsted Grotesk", sans-serif',
+      inputSize: 'clamp(2rem, 5vw, 4rem)',
+      resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
+      headingTransform: 'uppercase',
+      headingTracking: '0.25em',
+    },
+    ui: {
+      borderRadius: '0px',
+      borderWidth: '1px',
+      boxShadow: 'none',
+      buttonShadow: 'none',
+    }
+  },
   POETIC_LIGHT: {
     id: 'POETIC_LIGHT',
     colors: {

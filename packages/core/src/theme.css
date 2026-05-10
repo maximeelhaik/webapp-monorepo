@@ -307,7 +307,7 @@ div {
   pointer-events: none;
   z-index: 199;
   border-radius: 50%;
-  background: var(--c-amber);
+  background: var(--theme-primary, var(--c-amber));
   mix-blend-mode: screen;
   -webkit-transform: translate(-50%, -50%);
   transform: translate(-50%, -50%);
