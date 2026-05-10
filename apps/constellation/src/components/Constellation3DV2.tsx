@@ -50,8 +50,8 @@ interface ConstellationProps {
 // --- Constantes visuelles ---
 const ACTIVE_RADIUS = 0.85;
 const NODE_RADIUS = 0.4;
-const HIT_RADIUS_ACTIVE = 2.2;
-const HIT_RADIUS_NODE = 1.4;
+const HIT_RADIUS_ACTIVE = 3.8; // Zone cliquable boostée
+const HIT_RADIUS_NODE = 2.8; // Zone cliquable boostée pour mobile
 const TARGET_DIST = 26;
 const MIN_DIST = 18.5;
 
@@ -254,9 +254,9 @@ const Node = React.memo(({
                     orbitRef.current.scale.set(dist, dist, 1.0);
                 }
 
-                // 6. Opacité tamisée
+                // 6. Opacité tamisée (Réduite à 0.35 pour plus d'élégance comme demandé)
                 if (orbitMatRef.current) {
-                    orbitMatRef.current.opacity = showSatellites ? 0.75 : 0.0;
+                    orbitMatRef.current.opacity = showSatellites ? 0.35 : 0.0;
                 }
             }
         }
@@ -593,7 +593,12 @@ const Edge = React.memo(({
             if (isSatEdge) {
                 matRef.current.opacity = showSatellites ? 0.8 : 0.1;
             } else {
-                matRef.current.opacity = (distance <= 0.5 && !showSatellites) ? 1.0 : baseOpacity * baseMultiplier;
+                // Amélioration : Rendre les liens degré > 1 plus visibles en mode concept (était trop faible, ~0.36)
+                if (!showSatellites) {
+                    matRef.current.opacity = (distance <= 0.5) ? 1.0 : (isLight ? 0.7 : 0.6); 
+                } else {
+                    matRef.current.opacity = baseOpacity * baseMultiplier; // Mode satellite : fondre les liens concept
+                }
             }
 
             if (isSatEdge) {
@@ -750,37 +755,72 @@ const GraphScene = ({
     }, [isMobile, camera]);
 
     useEffect(() => {
-        const targetEl = gl.domElement;
+        // Fix Mobile : attacher au parent du canvas pour contourner OrbitControls qui mange les events
+        const targetEl = gl.domElement.parentElement || gl.domElement;
         let lastTriggerTime = 0;
+        let initialPinchDist = 0;
 
         const handleWheel = (e: WheelEvent) => {
-            // Empêche le comportement par défaut sur le canvas pour une captation prioritaire et sans conflit
             e.preventDefault();
             e.stopPropagation();
-
             const now = performance.now();
-            if (now - lastTriggerTime < 200) return; // Protection de l'inertie et anti-rebond
+            if (now - lastTriggerTime < 250) return; 
 
             if (Math.abs(e.deltaY) > 1.0) { 
                 if (e.deltaY > 0) {
-                    // Scroll vers le bas (dézoomer) -> Concept
-                    if (onZoomChange) {
-                        onZoomChange(ZOOM_CONCEPT - 1);
-                        lastTriggerTime = now;
-                    }
+                    if (onZoomChange) { onZoomChange(ZOOM_CONCEPT - 1); lastTriggerTime = now; }
                 } else if (e.deltaY < 0) {
-                    // Scroll vers le haut (zoomer) -> Satellites
-                    if (onZoomChange) {
-                        onZoomChange(ZOOM_SATELLITE + 1);
-                        lastTriggerTime = now;
+                    if (onZoomChange) { onZoomChange(ZOOM_SATELLITE + 1); lastTriggerTime = now; }
+                }
+            }
+        };
+
+        // --- GESTION DU PINCH-TO-ZOOM SUR MOBILE ---
+        const handleTouchStart = (e: TouchEvent) => {
+            if (e.touches.length === 2) {
+                initialPinchDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+            }
+        };
+
+        const handleTouchMove = (e: TouchEvent) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const now = performance.now();
+                if (now - lastTriggerTime < 350) return; 
+
+                const currentDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+
+                const diff = currentDist - initialPinchDist;
+                const sensitivityThreshold = 10; // Plus sensible comme demandé (était 25)
+
+                if (Math.abs(diff) > sensitivityThreshold) {
+                    if (diff > 0) {
+                        // Pinch OUT -> Agrandir -> Voir Satellites
+                        if (onZoomChange) onZoomChange(ZOOM_SATELLITE + 1);
+                    } else {
+                        // Pinch IN -> Réduire -> Voir Concept
+                        if (onZoomChange) onZoomChange(ZOOM_CONCEPT - 1);
                     }
+                    lastTriggerTime = now;
+                    initialPinchDist = currentDist; // Reset anchor
                 }
             }
         };
 
         targetEl.addEventListener('wheel', handleWheel, { passive: false });
+        targetEl.addEventListener('touchstart', handleTouchStart, { passive: true });
+        targetEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+
         return () => {
             targetEl.removeEventListener('wheel', handleWheel);
+            targetEl.removeEventListener('touchstart', handleTouchStart);
+            targetEl.removeEventListener('touchmove', handleTouchMove);
         };
     }, [onZoomChange, gl, ZOOM_CONCEPT, ZOOM_SATELLITE]);
 
@@ -980,12 +1020,21 @@ const GraphScene = ({
             for (let c = 0; c < lowerCenter.length; c++) wordSeed += lowerCenter.charCodeAt(c);
             const phaseShift = (wordSeed % 100) * 0.5;
 
-            const totalSats = (satelliteBrandables || []).length || 5;
-            (satelliteBrandables || []).forEach((sat, idx) => {
+            // Répartition des satellites : 2 par orbite aux extrémités opposées
+            const satsList = satelliteBrandables || [];
+            const totalSats = satsList.length || 6;
+            const numOrbits = Math.ceil(totalSats / 2);
+
+            satsList.forEach((sat, idx) => {
                 const satId = `sat-${sat.name.toLowerCase()}`;
                 if (!newNodes.has(satId)) {
-                    // 1. Répartition circulaire PARFAITE vue de la caméra (équitable sur le plan de l'écran)
-                    const angle = (idx / totalSats) * Math.PI * 2 + phaseShift;
+                    // Calculer l'indice de l'orbite et si on est à l'opposé
+                    const orbitIndex = Math.floor(idx / 2);
+                    const isOpposite = idx % 2 === 1;
+
+                    // Répartition uniforme des orbites sur PI (180°), le second sat est décalé de PI supplémentaire
+                    const orbitAngle = (orbitIndex / Math.max(1, numOrbits)) * Math.PI + phaseShift;
+                    const angle = orbitAngle + (isOpposite ? Math.PI : 0);
                     const radius = 4.3;
 
                     // 2. Construction du vecteur déterministe sur la base X/Y de la caméra
@@ -993,11 +1042,11 @@ const GraphScene = ({
                         .addScaledVector(basisX, radius * Math.cos(angle))
                         .addScaledVector(basisY, radius * Math.sin(angle));
                     
-                    // 3. Ajout d'une légère variation en profondeur (basisZ) pour préserver le ressenti 3D organique non plat
-                    const depthSign = (idx % 2 === 0) ? 1 : -1;
+                    // 3. Variation en profondeur PAR ORBITE pour que les ellipses se superposent parfaitement en 3D
+                    const depthSign = (orbitIndex % 2 === 0) ? 1 : -1;
                     const depthVariance = 0.75 * depthSign;
                     offset.addScaledVector(basisZ, depthVariance);
-
+                    
                     const bestPos = activeNode.targetPos.clone().add(offset);
 
                     // Déploiement unique : si déjà affiché dans l'état précédent, apparaît naturellement à sa position cible
@@ -1326,7 +1375,7 @@ const GraphScene = ({
             {/* Caméra avec amorti (damping) activé pour des rotations manuelles fluides et organiques */}
             <OrbitControls
                 ref={controlsRef}
-                enablePan={true}
+                enablePan={false} // Désactivé : pour garantir que le noeud central ne bouge jamais du pivot central (fix drift)
                 enableZoom={false}
                 enableDamping={true}
                 dampingFactor={isMobile ? 0.085 : 0.06} // Increased friction on mobile
@@ -1406,9 +1455,9 @@ export default function Constellation3DV2(props: ConstellationProps) {
             <Canvas
                 orthographic
                 camera={{ zoom: defaultZoom, position: [0, 0, 500], near: 1, far: 2000 }}
-                dpr={isMobile ? [1, 1.5] : (typeof navigator !== 'undefined' && navigator.hardwareConcurrency <= 4 ? [1, 1.5] : [1, 3])}
+                dpr={typeof navigator !== 'undefined' && navigator.hardwareConcurrency <= 4 ? [1, 2] : [1, 3]}
                 gl={{
-                    antialias: !isMobile, // Disable antialias on mobile for battery and performance
+                    antialias: true, // Restauration : corriger l'aliasing massif (primordial sur mobile)
                     powerPreference: "high-performance",
                     alpha: true
                 }}

@@ -168,6 +168,7 @@ export default function App() {
   });
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   const useNaming = true;
 
@@ -476,7 +477,7 @@ export default function App() {
           mode: useNaming ? 'naming' : 'classic',
           target: useNaming ? 'both' : 'concepts', // Toujours récupérer les deux si useNaming est actif (évite la latence)
           conceptsCount: 10,
-          brandablesCount: 15 // Création de 15 items pour alimenter la réserve locale
+          brandablesCount: 18 // Création de 18 items pour alimenter la réserve locale
         }),
         signal: abortController.signal
       });
@@ -634,10 +635,10 @@ export default function App() {
                 [nextWord.toLowerCase()]: brandableItems
               }));
 
-              // N'afficher directement que les 5 premiers
+              // N'afficher directement que les 6 premiers
               setSatelliteBrandables(prev => ({
                 ...prev,
-                [nextWord.toLowerCase()]: brandableItems.slice(0, 5)
+                [nextWord.toLowerCase()]: brandableItems.slice(0, 6)
               }));
             }
           }
@@ -744,18 +745,18 @@ export default function App() {
       const unusedBrandables = (satelliteReserve[lowerWord] || []).filter(b => !existingNamesSet.has(b.name.toLowerCase()));
       let newBrandablesToUse: {name: string; desc: string}[] = [];
 
-      console.log(`%c[SATELLITES] 📊 État de la réserve locale pour "${word}" : ${unusedBrandables.length} disponibles / 5 requis`, 'color: #94a3b8; font-style: italic;');
+      console.log(`%c[SATELLITES] 📊 État de la réserve locale pour "${word}" : ${unusedBrandables.length} disponibles / 6 requis`, 'color: #94a3b8; font-style: italic;');
 
-      if (unusedBrandables.length >= 5) {
-        newBrandablesToUse = unusedBrandables.slice(0, 5);
-        console.log(`%c[SATELLITES] 🟢 RÉSERVE UTILISÉE : 5 satellites piochés instantanément (sans IA). Reste en réserve: ${unusedBrandables.length - 5}`, 'color: #22c55e; font-weight: bold;');
+      if (unusedBrandables.length >= 6) {
+        newBrandablesToUse = unusedBrandables.slice(0, 6);
+        console.log(`%c[SATELLITES] 🟢 RÉSERVE UTILISÉE : 6 satellites piochés instantanément (sans IA). Reste en réserve: ${unusedBrandables.length - 6}`, 'color: #22c55e; font-weight: bold;');
       } else {
         const excludeList = Array.from(new Set([
           ...Array.from(existingNamesSet),
           ...(satelliteReserve[lowerWord] || []).map(b => b.name.toLowerCase())
         ]));
 
-        console.log(`%c[SATELLITES] 📡 APPEL IA REQUIS : Demande de 15 satellites (Exclus: ${excludeList.length} mots)`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`%c[SATELLITES] 📡 APPEL IA REQUIS : Demande de 18 satellites (Exclus: ${excludeList.length} mots)`, 'color: #f59e0b; font-weight: bold;');
 
         const response = await fetch('/api/generate', {
           method: 'POST',
@@ -765,7 +766,7 @@ export default function App() {
             app: 'constellation',
             mode: 'naming', // Toujours naming pour satellites
             target: 'brandables',
-            brandablesCount: 15,
+            brandablesCount: 18,
             exclude: excludeList
           })
         });
@@ -806,8 +807,8 @@ export default function App() {
         }
         
         const allUnused = [...unusedBrandables, ...brandableItems];
-        newBrandablesToUse = allUnused.slice(0, 5);
-        console.log(`%c[SATELLITES] ✨ Affichage des 5 nouveaux satellites. Stock restant en réserve: ${allUnused.length - newBrandablesToUse.length}`, 'color: #10b981;');
+        newBrandablesToUse = allUnused.slice(0, 6);
+        console.log(`%c[SATELLITES] ✨ Affichage des 6 nouveaux satellites. Stock restant en réserve: ${allUnused.length - newBrandablesToUse.length}`, 'color: #10b981;');
       }
 
       if (newBrandablesToUse.length > 0) {
@@ -1017,17 +1018,14 @@ export default function App() {
   };
 
   const handleZoomChange = useCallback((zoom: number) => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const maxSatZoom = isMobile ? 10 : 18;
+    const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
+    const maxSatZoom = isMobileDevice ? 10 : 18;
     
-    setShowSatellites(prevShow => {
-      if (zoom <= maxSatZoom) {
-        return false;
-      } else {
-        return userPreferredShowSatellites;
-      }
-    });
-  }, [userPreferredShowSatellites]);
+    const shouldShowSatellites = zoom > maxSatZoom;
+    setShowSatellites(shouldShowSatellites);
+    // Crucial fix: Sync the user's intent to ensure zooming toggles the mode unconditionally
+    setUserPreferredShowSatellites(shouldShowSatellites);
+  }, [setUserPreferredShowSatellites]);
 
   const handleDeleteNode = useCallback((wordToDelete: string) => {
     if (!wordToDelete) return;
@@ -1190,6 +1188,8 @@ export default function App() {
   };
 
   const currentTheme = THEMES[activeTheme] || THEMES.AMBER;
+
+  const totalSatellitesCount = Object.values(satelliteBrandables).reduce((acc, curr) => acc + curr.length, 0);
 
   // themeStyle : uniquement les tokens de couleur dynamiques (thème actif).
   // Les polices (--app-font-display, --app-font-body) sont définies dans
@@ -1491,9 +1491,15 @@ export default function App() {
             >
               Constellation
             </h1>
-            <div className="hidden sm:flex items-center gap-2 text-[9px] tracking-widest font-mono uppercase opacity-50 ml-0.5">
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${loading ? 'bg-[var(--theme-primary)] animate-pulse' : 'bg-green-400'}`} />
-              <span style={{ color: 'var(--theme-text)' }}>{loading ? t.statusLoading : t.statusLoaded}</span>
+            <div className="flex items-center gap-2 sm:gap-3 text-[8px] sm:text-[9px] tracking-widest font-mono uppercase opacity-60 ml-0.5 mt-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className={`inline-block w-1 h-1 rounded-full ${loading ? 'bg-[var(--theme-primary)] animate-pulse' : 'bg-green-400'}`} />
+                <span style={{ color: 'var(--theme-text)' }}>{loading ? t.statusLoading : t.statusLoaded}</span>
+              </div>
+              <span className="opacity-30">|</span>
+              <span style={{ color: 'var(--theme-text)' }}>{t.statusNodes}: {allNodesOnMap.length}</span>
+              <span className="opacity-30">|</span>
+              <span style={{ color: 'var(--theme-text)' }}>Noms: {totalSatellitesCount}</span>
             </div>
           </div>
 
@@ -1795,26 +1801,7 @@ export default function App() {
             className="flex flex-row items-center gap-3 shrink-0 text-[9px] sm:text-[10px] tracking-[0.15em] select-none app-details ml-auto"
             style={{ fontFamily: 'var(--app-font-body)' }}
           >
-            {(loading || loadingConnexes || loadingSatellites) && (
-              <span 
-                className="status-scanning animate-pulse font-bold px-1 uppercase tracking-widest flex items-center gap-1"
-                style={{ 
-                  color: currentTheme.id === 'RAW_MINIMAL' ? 'var(--theme-primary)' : (loadingSatellites ? '#fbbf24' : (loadingConnexes ? '#3b82f6' : (showSatellites ? '#fbbf24' : '#3b82f6'))),
-                  fontSize: '9px',
-                }}
-              >
-                <span 
-                  className="inline-block w-1 h-1 rounded-full" 
-                  style={{ 
-                    backgroundColor: currentTheme.id === 'RAW_MINIMAL' ? 'var(--theme-primary)' : (loadingSatellites ? '#fbbf24' : (loadingConnexes ? '#3b82f6' : (showSatellites ? '#fbbf24' : '#3b82f6'))),
-                  }} 
-                />
-                <span className="hidden sm:inline">{t.statusLoading}</span>
-              </span>
-            )}
-            <span className={`${amberFlash ? 'flash-amber text-[var(--theme-text)]' : ''} whitespace-nowrap`} style={{ opacity: 0.5 }}>
-              {t.statusNodes}: {allNodesOnMap.length}
-            </span>
+            {/* Status indicators moved to header */}
           </div>
         </footer>
       )}
@@ -1822,7 +1809,7 @@ export default function App() {
       {/* Floating Map Labels unified in premium header control deck */}
 
       {/* Custom cursor */}
-      {isFinePointer && (
+      {!isMobile && isFinePointer && (
         <>
           {/* Amber trail dots */}
           {[

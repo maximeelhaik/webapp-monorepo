@@ -81,20 +81,22 @@
   }
 }
 
-/* Curseur personnalisé masqué sur tous les éléments */
-*,
-*::before,
-*::after,
-html,
-body,
-input,
-button,
-a,
-textarea,
-[role="button"],
-span,
-div {
-  cursor: none !important;
+/* Curseur personnalisé masqué sur tous les éléments (uniquement sur desktop avec pointeur) */
+@media (hover: hover) and (pointer: fine) {
+  *,
+  *::before,
+  *::after,
+  html,
+  body,
+  input,
+  button,
+  a,
+  textarea,
+  [role="button"],
+  span,
+  div {
+    cursor: none !important;
+  }
 }
 
 
