@@ -52,13 +52,11 @@
 @layer base {
   html {
     scroll-behavior: smooth;
-    cursor: none !important;
   }
 
   body {
     @apply bg-void text-lunar antialiased;
     font-family: var(--app-font-body, system-ui, sans-serif);
-    cursor: none !important;
     overflow: hidden;
   }
 
@@ -81,8 +79,8 @@
   }
 }
 
-/* Curseur personnalisé masqué sur tous les éléments (uniquement sur desktop avec pointeur) */
-@media (hover: hover) and (pointer: fine) {
+/* Curseur personnalisé masqué uniquement sur desktop (min 768px) avec pointeur fin */
+@media (hover: hover) and (pointer: fine) and (min-width: 768px) {
   *,
   *::before,
   *::after,

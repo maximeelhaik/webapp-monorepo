@@ -1,6 +1,6 @@
 import adjectifHandler from "../apps/adjectif/api/generate";
 import worldHandler from "../apps/world/api/generate";
-import constellationHandler from "../apps/constellation/api/generate";
+import constellationHandler from "../apps/constellation/api/generateV2";
 
 export const config = {
   runtime: 'edge',

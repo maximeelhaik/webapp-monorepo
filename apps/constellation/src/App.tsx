@@ -153,6 +153,7 @@ export default function App() {
   const [exploredCache, setExploredCache] = useState<Record<string, string[]>>({});
   const [satelliteBrandables, setSatelliteBrandables] = useState<Record<string, { name: string; desc: string }[]>>({});
   const [satelliteReserve, setSatelliteReserve] = useState<Record<string, { name: string; desc: string }[]>>({});
+  const [pinnedSatellites, setPinnedSatellites] = useState<{ name: string; desc: string }[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [labelsOpaque, setLabelsOpaque] = useState(true); // Par défaut en mode étiquette visible
   const [showSatellites, setShowSatellites] = useState(true);
@@ -171,6 +172,7 @@ export default function App() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   const useNaming = true;
+  const [sector, setSector] = useState("startup tech / IA");
 
   useEffect(() => {
     localStorage.setItem('app-lang', lang);
@@ -277,63 +279,54 @@ export default function App() {
 
 
 
-  // --- NOUVELLE IMPLEMENTATION DYNAMIQUE ---
-  const getShortestPath = useCallback((targetWord: string) => {
-    const target = targetWord.toLowerCase();
-
-    // Construire l'adjacence depuis tous les liens connus
-    const adj = new Map<string, string[]>();
-    edges.forEach(link => {
-      const [a, b] = link.split('|');
-      if (!adj.has(a)) adj.set(a, []);
-      if (!adj.has(b)) adj.set(b, []);
-      adj.get(a)!.push(b);
-      adj.get(b)!.push(a);
+  // --- NOUVEAU CALCUL DU FIL D'ARIANE (LIGNÉE DIRECTE) ---
+  useEffect(() => {
+    if (!centerWord) return;
+    const lowerTarget = centerWord.toLowerCase();
+    
+    // Remonter la chaîne des parents pour trouver la lignée directe
+    const path: string[] = [];
+    let curr: string | undefined = lowerTarget;
+    
+    // Sécurité pour éviter les boucles infinies
+    const visited = new Set<string>();
+    
+    while (curr && !visited.has(curr)) {
+      visited.add(curr);
+      // Récupérer la casse d'origine, sinon capitaliser la première lettre
+      const casedWord = casingMap[curr] || (curr.charAt(0).toUpperCase() + curr.slice(1));
+      path.push(casedWord);
+      
+      // Passer au parent
+      const parentWord: string | undefined = parentsMap[curr];
+      curr = parentWord ? parentWord.toLowerCase() : undefined;
+    }
+    
+    const calculatedPath = path.reverse();
+    
+    setHistory(prevHistory => {
+      // Vérifier si le nouveau chemin (calculatedPath) est un préfixe de l'ancien (prevHistory)
+      // Cela se produit quand on remonte dans la même lignée (ex: Fleur > Plante > Racine, on clique sur Plante)
+      let isPrefix = false;
+      if (prevHistory.length >= calculatedPath.length) {
+        isPrefix = calculatedPath.every((word, index) => 
+          word.toLowerCase() === prevHistory[index].toLowerCase()
+        );
+      }
+      
+      if (isPrefix) {
+        console.log(`%c[FIL D'ARIANE] ⏪ Navigation en arrière détectée. Conservation de la lignée complète:`, 'color: #3b82f6; font-weight: bold;', prevHistory.join(' > '));
+        return prevHistory;
+      }
+      
+      console.log(`%c[FIL D'ARIANE] 🧵 Nouvelle lignée calculée pour "${centerWord}":`, 'color: #f59e0b; font-weight: bold;', calculatedPath.join(' > '));
+      console.log(`%c[FIL D'ARIANE] 🔍 Détails Arborescence:`, 'color: #94a3b8;', 
+        visited.size > 0 ? Array.from(visited).map(v => `${v} (parent: ${parentsMap[v] || 'aucun'})`).join(' <- ') : 'Racine'
+      );
+      
+      return calculatedPath;
     });
-
-    // BFS pour trouver le chemin le plus court vers la première seed (la racine absolue)
-    const rootSeed = seeds[0] ? seeds[0].toLowerCase() : target;
-    const queue: [string, string[]][] = [[rootSeed, [rootSeed]]];
-    const visited = new Set<string>([rootSeed]);
-
-    while (queue.length > 0) {
-      const [curr, path] = queue.shift()!;
-      if (curr === target) return path.map(w => casingMap[w] || w);
-
-      const neighbors = adj.get(curr) || [];
-      for (const nb of neighbors) {
-        if (!visited.has(nb)) {
-          visited.add(nb);
-          queue.push([nb, [...path, nb]]);
-        }
-      }
-    }
-
-    // Si non trouvé (cluster déconnecté), on cherche depuis les autres seeds pour garder une cohérence locale
-    // mais on privilégie toujours le chemin le plus court trouvé.
-    for (const seed of seeds) {
-      const sLower = seed.toLowerCase();
-      if (sLower === rootSeed) continue;
-
-      const sQueue: [string, string[]][] = [[sLower, [sLower]]];
-      const sVisited = new Set<string>([sLower]);
-
-      while (sQueue.length > 0) {
-        const [curr, path] = sQueue.shift()!;
-        if (curr === target) return path.map(w => casingMap[w] || w);
-
-        const neighbors = adj.get(curr) || [];
-        for (const nb of neighbors) {
-          if (!sVisited.has(nb)) {
-            sVisited.add(nb);
-            sQueue.push([nb, [...path, nb]]);
-          }
-        }
-      }
-    }
-
-    return [casingMap[target] || targetWord]; // Fallback si vraiment aucun lien
-  }, [edges, seeds, casingMap]);
+  }, [centerWord, parentsMap, casingMap]);
 
   // Fetch words with streaming
   const handleNavigateWord = async (nextWord: string, isSearch: boolean = false) => {
@@ -359,30 +352,6 @@ export default function App() {
       console.log(`%c[NETWORK] 🛡️ Appel bloqué pour "${nextWord}" (déjà en cours)`, 'color: #f59e0b;');
       return;
     }
-
-    // Gestion du parcours (Fil d'Ariane)
-    setHistory(prev => {
-      const lowerNext = nextWord.toLowerCase();
-      const lowerPath = prev.map(w => w.toLowerCase());
-
-      // 1. Si déjà dans le fil d'ariane, on garde tout le chemin intact (Passion ne disparaît pas quand on clique sur Amour)
-      const existingIndex = lowerPath.indexOf(lowerNext);
-      if (existingIndex !== -1) {
-        return prev;
-      }
-
-      // 2. Si on explore un nouveau mot (ex: Tendresse depuis Amour), on embranche depuis le mot actif actuel
-      const activeIdx = lowerPath.indexOf(centerWord.toLowerCase());
-      if (activeIdx !== -1) {
-        const baseCased = prev.slice(0, activeIdx + 1);
-        const nextCased = casingMap[lowerNext] || (nextWord.charAt(0).toUpperCase() + nextWord.slice(1).toLowerCase());
-        return [...baseCased, nextCased];
-      }
-
-      // 3. Fallback : calcul du plus court chemin réel
-      const path = getShortestPath(nextWord);
-      return path;
-    });
 
     // Mettre à jour la map des casses pour le fil d'ariane
     setCasingMap(prev => ({ ...prev, [nextWord.toLowerCase()]: nextWord.charAt(0).toUpperCase() + nextWord.slice(1).toLowerCase() }));
@@ -468,6 +437,14 @@ export default function App() {
         console.log(`%c[BRIDGE] 📦 Mots en mémoire: [${allNodesOnMap.join(', ')}]`, 'color: #94a3b8; font-size: 10px;');
       }
 
+      console.log(`%c🚀 [API V2] APPEL GLOBAL (MODE: ${useNaming ? 'NAMING' : 'CLASSIC'})`, 'color: #ffffff; background: #2563eb; font-weight: bold; font-size: 12px; padding: 4px 8px; border-radius: 4px;');
+      console.log(`%c👉 Payload envoyé :`, 'color: #60a5fa; font-weight: bold;', {
+        prompt: nextWord,
+        sector: sector,
+        mode: useNaming ? 'naming' : 'classic',
+        target: useNaming ? 'both' : 'concepts'
+      });
+
       const generatePromise = fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -477,7 +454,8 @@ export default function App() {
           mode: useNaming ? 'naming' : 'classic',
           target: useNaming ? 'both' : 'concepts', // Toujours récupérer les deux si useNaming est actif (évite la latence)
           conceptsCount: 10,
-          brandablesCount: 18 // Création de 18 items pour alimenter la réserve locale
+          brandablesCount: 18, // Création de 18 items pour alimenter la réserve locale
+          sector: useNaming ? sector : undefined
         }),
         signal: abortController.signal
       });
@@ -539,10 +517,6 @@ export default function App() {
             return prev;
           });
 
-          // Rafraîchir l'histoire une fois le lien enregistré
-          setTimeout(() => {
-            setHistory(() => getShortestPath(nextWord));
-          }, 50);
         } else if (shouldCheckConnect) {
           console.log(`%c[BRIDGE] ⚪ Aucune connexion forte identifiée pour "${nextWord}". Ajout aux seeds.`);
           setSeeds(prev => Array.from(new Set([...prev, nextWord])));
@@ -756,7 +730,13 @@ export default function App() {
           ...(satelliteReserve[lowerWord] || []).map(b => b.name.toLowerCase())
         ]));
 
-        console.log(`%c[SATELLITES] 📡 APPEL IA REQUIS : Demande de 18 satellites (Exclus: ${excludeList.length} mots)`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`%c🛰️ [API V2] APPEL SATELLITES (BRANDABLES)`, 'color: #ffffff; background: #7c3aed; font-weight: bold; font-size: 12px; padding: 4px 8px; border-radius: 4px;');
+        console.log(`%c👉 Payload envoyé :`, 'color: #a78bfa; font-weight: bold;', {
+          prompt: word,
+          sector: sector,
+          target: 'brandables'
+        });
+        console.log(`%c[SATELLITES] 📡 Demande de 18 satellites (Exclus: ${excludeList.length} mots)`, 'color: #f59e0b; font-weight: bold;');
 
         const response = await fetch('/api/generate', {
           method: 'POST',
@@ -767,7 +747,8 @@ export default function App() {
             mode: 'naming', // Toujours naming pour satellites
             target: 'brandables',
             brandablesCount: 18,
-            exclude: excludeList
+            exclude: excludeList,
+            sector: sector
           })
         });
 
@@ -861,7 +842,13 @@ export default function App() {
           ...Array.from(neighbors),
         ]);
 
-        console.log(`%c[CONNEXES] 📡 APPEL IA REQUIS : Demande de 10 connexes (Exclus: ${alreadyKnown.size} mots)`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`%c🧠 [API V2] APPEL CONCEPTS`, 'color: #ffffff; background: #059669; font-weight: bold; font-size: 12px; padding: 4px 8px; border-radius: 4px;');
+        console.log(`%c👉 Payload envoyé :`, 'color: #34d399; font-weight: bold;', {
+          prompt: word,
+          sector: sector,
+          target: 'concepts'
+        });
+        console.log(`%c[CONNEXES] 📡 Demande de 10 connexes (Exclus: ${alreadyKnown.size} mots)`, 'color: #f59e0b; font-weight: bold;');
 
         const response = await fetch('/api/generate', {
           method: 'POST',
@@ -872,7 +859,8 @@ export default function App() {
             mode: useNaming ? 'naming' : 'classic',
             target: 'concepts',
             conceptsCount: 10,
-            exclude: Array.from(alreadyKnown)
+            exclude: Array.from(alreadyKnown),
+            sector: useNaming ? sector : undefined
           })
         });
 
@@ -1180,6 +1168,42 @@ export default function App() {
   }, [history, centerWord, handleNavigateWord, handleDeleteNode]);
 
 
+  const handleRegenerateSector = () => {
+    if (!centerWord) return;
+    
+    // Vider le cache de satellites pour forcer une nouvelle génération
+    setSatelliteBrandables(prev => {
+      const copy = { ...prev };
+      delete copy[centerWord.toLowerCase()];
+      return copy;
+    });
+    setSatelliteReserve(prev => {
+      const copy = { ...prev };
+      delete copy[centerWord.toLowerCase()];
+      return copy;
+    });
+    
+    // Forcer l'affichage du mode satellites si on y était pas
+    if (!showSatellites) {
+      setShowSatellites(true);
+      setUserPreferredShowSatellites(true);
+    }
+    
+    // Lancer la génération
+    handleGenerateSatellites(centerWord);
+  };
+  
+  const handlePinSatellite = useCallback((sat: { name: string; desc: string }) => {
+    setPinnedSatellites(prev => {
+      const exists = prev.find(p => p.name.toLowerCase() === sat.name.toLowerCase());
+      if (exists) {
+        // Seuil haptique si possible ou log
+        return prev.filter(p => p.name.toLowerCase() !== sat.name.toLowerCase());
+      }
+      return [...prev, sat];
+    });
+  }, []);
+
   const handleCustomJump = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputWord.trim()) return;
@@ -1282,6 +1306,8 @@ export default function App() {
           loadingSatellites={loadingSatellites}
           onZoomChange={handleZoomChange}
           onWordDoubleClick={handleDoubleClickWord}
+          pinnedSatellites={pinnedSatellites}
+          onPinSatellite={handlePinSatellite}
         />
       )}
 
@@ -1543,6 +1569,32 @@ export default function App() {
               </div>
             </motion.form>
 
+            {/* Sector Input Container (Naming mode only) */}
+            {useNaming && (
+              <>
+                <div className="hidden md:block w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
+                <div className="relative flex items-center w-[110px] sm:w-auto min-w-0 sm:min-w-[150px]">
+                  <input
+                    type="text"
+                    className="w-full pl-2 pr-2 py-1.5 sm:py-2 bg-transparent text-[11px] sm:text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.05em] tracking-[0.1em] font-mono border-b border-[var(--theme-border)] min-h-[36px] sm:min-h-[unset]"
+                    style={{
+                      borderColor: sector ? 'var(--theme-primary)' : 'var(--theme-border)',
+                      color: 'var(--theme-text)',
+                    }}
+                    placeholder="Secteur (ex: IA...)"
+                    value={sector}
+                    onChange={(e) => setSector(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleRegenerateSector();
+                      }
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
             {/* Desktop Separator */}
             <div className="hidden md:block w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
 
@@ -1694,6 +1746,29 @@ export default function App() {
                     <span className="opacity-80">{labelsOpaque ? t.labelsVisible : t.labelsAuto}</span>
                   </button>
 
+                  {/* Mobile Sector Input */}
+                  {useNaming && (
+                    <div className="w-full mb-1">
+                      <input
+                        type="text"
+                        className="w-full px-3 py-2 bg-transparent text-[10px] sm:text-[12px] focus:outline-none transition-all duration-300 font-mono border-b border-[var(--theme-border)]"
+                        style={{
+                          borderColor: sector ? 'var(--theme-primary)' : 'var(--theme-border)',
+                          color: 'var(--theme-text)',
+                        }}
+                        placeholder="Secteur..."
+                        value={sector}
+                        onChange={(e) => setSector(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleRegenerateSector();
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Mobile Toggle Satellites */}
                   {useNaming && (
                     <button
@@ -1807,6 +1882,72 @@ export default function App() {
       )}
 
       {/* Floating Map Labels unified in premium header control deck */}
+
+      {/* Floating Pinned Satellites Deck (Tucked in Upper Right Corner) */}
+      {initialized && (
+        <div className="fixed top-[min(130px,20vh)] right-3 sm:right-8 z-[45] flex flex-col items-end gap-2.5 pointer-events-none max-h-[60vh] overflow-y-auto no-scrollbar"
+             style={{ scrollbarWidth: 'none' }}>
+          <AnimatePresence mode="popLayout">
+            {pinnedSatellites.map((sat, idx) => (
+              <motion.div
+                key={sat.name}
+                initial={{ opacity: 0, x: 60, scale: 0.8, filter: 'blur(8px)' }}
+                animate={{ 
+                  opacity: 1, 
+                  x: 0, 
+                  scale: 1, 
+                  filter: 'blur(0px)',
+                  y: [0, -3, 0], // Subtle float oscillation
+                  transition: {
+                    y: { repeat: Infinity, duration: 4 + Math.random() * 2, ease: "easeInOut", delay: idx * 0.3 },
+                    default: { duration: 0.5, ease: [0.23, 1, 0.32, 1] }
+                  }
+                }}
+                exit={{ 
+                  opacity: 0, 
+                  scale: 0.7, 
+                  x: 30, 
+                  filter: 'blur(4px)',
+                  transition: { duration: 0.3 } 
+                }}
+                whileHover={{ scale: 1.05, x: -5 }}
+                onClick={() => handlePinSatellite(sat)}
+                className="pointer-events-auto cursor-pointer backdrop-blur-xl flex flex-row items-center justify-end group relative"
+                style={{
+                  backgroundColor: 'var(--theme-card)',
+                  border: '1px solid var(--theme-border)',
+                  padding: '8px 14px',
+                  boxShadow: 'var(--theme-shadow)',
+                  borderWidth: 'var(--theme-border-width)',
+                  borderRadius: 'var(--theme-radius)',
+                  minWidth: '100px'
+                }}
+              >
+                {/* Accent vertical discrete link */}
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-1/2 bg-[var(--theme-primary)] opacity-50 rounded-full group-hover:h-[80%] transition-all duration-300" />
+                
+                <span className="select-none mr-2" style={{
+                  fontFamily: 'var(--app-font-display)',
+                  fontStyle: 'italic',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  letterSpacing: '0.05em',
+                  color: 'var(--theme-primary)',
+                  textTransform: 'lowercase'
+                }}>
+                  {sat.name}
+                </span>
+                
+                <div className="w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-[#ef4444]">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
       {/* Custom cursor */}
       {!isMobile && isFinePointer && (

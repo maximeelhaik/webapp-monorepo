@@ -15,6 +15,9 @@ export interface NodeData {
     distance?: number;
     isSatellite?: boolean;
     description?: string;
+    isOrbitLeader?: boolean; // Définit si ce satellite doit afficher l'orbite visuelle (1 par paire)
+    orbitAngleCached?: number; // Stockage de l'angle statique pour placement temps réel dynamique
+    orbitDepthVariance?: number; // Stockage de la profondeur relative
 }
 
 export interface EdgeData {
@@ -45,25 +48,29 @@ interface ConstellationProps {
     satelliteBrandables?: { name: string; desc: string }[];
     onZoomChange?: (zoom: number) => void;
     onWordDoubleClick?: (word: string) => void;
+    pinnedSatellites?: { name: string; desc: string }[];
+    onPinSatellite?: (sat: { name: string; desc: string }) => void;
 }
 
 // --- Constantes visuelles ---
 const ACTIVE_RADIUS = 0.85;
 const NODE_RADIUS = 0.4;
-const HIT_RADIUS_ACTIVE = 3.8; // Zone cliquable boostée
-const HIT_RADIUS_NODE = 2.8; // Zone cliquable boostée pour mobile
 const TARGET_DIST = 26;
 const MIN_DIST = 18.5;
 
 const getDynamicZoomSettings = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     return {
-        defaultZoom: isMobile ? 8.5 : 15.5,
-        maxSatZoom: isMobile ? 6.0 : 11.0
+        defaultZoom: isMobile ? 7.0 : 13.0, // Dézoomé encore légèrement (était 8.5 / 15.5) pour tout voir
+        maxSatZoom: isMobile ? 5.0 : 9.0 // Cohérence dézoome
     };
 };
 
-
+// Vecteurs de calcul temporaires réutilisables pour la performance de useFrame (évite Garbage Collection)
+const _scratchV1 = new THREE.Vector3();
+const _scratchV2 = new THREE.Vector3();
+const _scratchV3 = new THREE.Vector3();
+const _scratchV4 = new THREE.Vector3();
 
 /**
  * Node — Cercle 2D billboard (toujours face caméra)
@@ -85,6 +92,8 @@ const Node = React.memo(({
     isSelectedSatellite,
     setSelectedSatellite,
     onDoubleClick,
+    isPinned = false,
+    onPinSatellite
 }: {
     data: NodeData;
     isActive: boolean;
@@ -102,6 +111,8 @@ const Node = React.memo(({
     loadingSatellites?: boolean;
     isSelectedSatellite?: boolean;
     setSelectedSatellite?: (sat: {name: string, desc: string} | null) => void;
+    isPinned?: boolean;
+    onPinSatellite?: (sat: {name: string, desc: string}) => void;
 }) => {
     const groupRef = useRef<THREE.Group>(null);
     const currentPos = useRef(new THREE.Vector3().copy(data.startPos));
@@ -175,14 +186,40 @@ const Node = React.memo(({
         : (distance === 0 ? 1.0 : (labelsOpaque ? baseOpacity : 0.0));
 
     useFrame(({ camera, clock }) => {
-        // Translation accélérée pour un replacement dynamique ultra-réactif (satellites mobiles : 0.09, concepts : 0.055)
-        const lerpFactor = data.isSatellite ? 0.09 : 0.055;
-        currentPos.current.lerp(data.targetPos, lerpFactor);
+        // PLACEMENT DYNAMIQUE EN TEMPS RÉEL POUR SATELLITES : recalculé à chaque frame pour suivre la rotation caméra !
+        if (data.isSatellite && data.parentId) {
+            const parentPos = nodePositionsRef.current.get(data.parentId);
+            if (parentPos) {
+                // 1. Récupérer le repère orthogonal de la caméra DIRECT (Stable à 100% dans tous les angles)
+                const camRight = _scratchV1.set(1, 0, 0).applyQuaternion(camera.quaternion);
+                const camUp = _scratchV2.set(0, 1, 0).applyQuaternion(camera.quaternion);
+                const camForward = _scratchV3.set(0, 0, -1).applyQuaternion(camera.quaternion); // Profondeur (vers le fond)
+
+                const ang = data.orbitAngleCached || 0;
+                const rad = 4.3; // Rayon de l'orbite
+                const dVar = data.orbitDepthVariance || 0;
+
+                // 2. Calculer la Cible Spatiale en temps réel qui pivote avec la vue utilisateur
+                const dynamicTarget = _scratchV4.copy(parentPos)
+                    .addScaledVector(camRight, rad * Math.cos(ang))
+                    .addScaledVector(camUp, rad * Math.sin(ang))
+                    .addScaledVector(camForward, dVar);
+
+                // 3. Interpolation douce vers cette cible mouvante (lerp un peu plus rapide pour le feedback de rotation)
+                currentPos.current.lerp(dynamicTarget, 0.085);
+            } else {
+                // Fallback de sécurité si position parent introuvable
+                currentPos.current.lerp(data.targetPos, 0.09);
+            }
+        } else {
+            // Translation standard fluide pour les concepts statiques dans le monde 3D
+            currentPos.current.lerp(data.targetPos, 0.055);
+        }
         if (groupRef.current) {
             groupRef.current.position.copy(currentPos.current);
             groupRef.current.quaternion.copy(camera.quaternion);
 
-            const ZOOM_CONCEPT = isMobile ? 8.5 : 11.0;
+            const ZOOM_CONCEPT = isMobile ? 7.0 : 9.5; // Cohérence avec camera frame
             const baseScale = data.isSatellite ? 1.0 : (ZOOM_CONCEPT / camera.zoom);
 
             // Animation de respiration (pulse) si en cours de chargement (concept ou connexes ou satellites) et actif
@@ -271,7 +308,11 @@ const Node = React.memo(({
     });
 
     const nodeR = data.isSatellite ? NODE_RADIUS * 0.75 : (isActive ? ACTIVE_RADIUS : NODE_RADIUS);
-    const hitR = isActive ? HIT_RADIUS_ACTIVE : HIT_RADIUS_NODE;
+    
+    // Application des Hit Radius boostés UNIQUEMENT sur Mobile, restaurés aux valeurs fines sur Desktop
+    const currentHitActive = isMobile ? 3.8 : 2.2; 
+    const currentHitNode = isMobile ? 2.8 : 1.4;
+    const hitR = isActive ? currentHitActive : currentHitNode;
     const glowR = nodeR * 2.4;
 
     const formattedLabel = data.label.charAt(0).toUpperCase() + data.label.slice(1).toLowerCase();
@@ -279,8 +320,20 @@ const Node = React.memo(({
     return (
         <group ref={groupRef}>
             <mesh
-                onPointerEnter={(e) => { e.stopPropagation(); setHovered(true); }}
-                onPointerLeave={(e) => { e.stopPropagation(); setHovered(false); }}
+                onPointerEnter={(e) => { 
+                    e.stopPropagation(); 
+                    setHovered(true); 
+                    if (data.isSatellite && setSelectedSatellite) {
+                        setSelectedSatellite({ name: data.label, desc: data.description || '' });
+                    }
+                }}
+                onPointerLeave={(e) => { 
+                    e.stopPropagation(); 
+                    setHovered(false); 
+                    if (data.isSatellite && setSelectedSatellite) {
+                        setSelectedSatellite(null);
+                    }
+                }}
                 onClick={(e) => { 
                     e.stopPropagation(); 
                     // Nettoyer le timer s'il y en a déjà un (cas du deuxième clic arrivant vite)
@@ -291,12 +344,8 @@ const Node = React.memo(({
                     // Retarder l'exécution du clic simple pour laisser le temps au double-clic de se manifester
                     clickTimeoutRef.current = setTimeout(() => {
                         if (data.isSatellite) {
-                            if (setSelectedSatellite) {
-                                if (isSelectedSatellite) {
-                                    setSelectedSatellite(null);
-                                } else {
-                                    setSelectedSatellite({ name: data.label, desc: data.description || '' });
-                                }
+                            if (onPinSatellite) {
+                                onPinSatellite({ name: data.label, desc: data.description || '' });
                             }
                         } else {
                             onClick(data.id); 
@@ -337,7 +386,7 @@ const Node = React.memo(({
             {data.isSatellite ? (
                 <>
                     {/* Orbite elliptique subtile et élégante alignée vers le parent sémantique */}
-                    {data.parentId && (
+                    {data.parentId && data.isOrbitLeader && (
                         <primitive
                             object={useMemo(() => new THREE.Line(ellipseGeometry), [ellipseGeometry])}
                             ref={orbitRef}
@@ -358,9 +407,9 @@ const Node = React.memo(({
                         <circleGeometry args={[nodeR, 32]} />
                         <meshBasicMaterial
                             ref={circleMatRef}
-                            color={(isSelectedSatellite || hovered ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff').slice(0, 7)}
+                            color={(isPinned || isSelectedSatellite || hovered ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff').slice(0, 7)}
                             transparent
-                            opacity={isSelectedSatellite ? 0.45 : (hovered ? 0.35 : 0.15)}
+                            opacity={isPinned || isSelectedSatellite ? 0.45 : (hovered ? 0.35 : 0.15)}
                             side={THREE.DoubleSide}
                             depthWrite={false}
                         />
@@ -371,7 +420,7 @@ const Node = React.memo(({
                         <meshBasicMaterial
                             color="#ffffff"
                             transparent
-                            opacity={isSelectedSatellite ? 1.0 : (hovered ? 0.95 : 0.8)}
+                            opacity={isPinned || isSelectedSatellite ? 1.0 : (hovered ? 0.95 : 0.8)}
                             depthWrite={false}
                         />
                     </mesh>
@@ -445,10 +494,10 @@ const Node = React.memo(({
                                 fontStyle: 'italic',
                                 color: theme.id === 'POETIC_LIGHT' ? '#d97706' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
                                 letterSpacing: '0.08em',
-                                textShadow: isSelectedSatellite 
-                                    ? (theme.id === 'RAW_MINIMAL' ? '0 0 15px rgba(255, 255, 255, 0.6)' : '0 0 15px rgba(251, 191, 36, 0.8)') 
-                                    : (theme.id === 'RAW_MINIMAL' ? '0 0 10px rgba(255, 255, 255, 0.15)' : '0 0 10px rgba(251, 191, 36, 0.25)'),
-                                opacity: isSelectedSatellite ? 1.0 : (hovered ? 0.9 : 0.7),
+                                textShadow: isPinned || isSelectedSatellite 
+                                    ? (theme.id === 'RAW_MINIMAL' ? '0 0 15px #ffffff' : '0 0 15px #fbbf24') 
+                                    : (theme.id === 'RAW_MINIMAL' ? '0 0 10px rgba(255,255,255,0.3)' : '0 0 10px rgba(251, 191, 36, 0.3)'),
+                                opacity: isPinned || isSelectedSatellite ? 1.0 : (hovered ? 0.9 : 0.7),
                                 transition: 'all 0.2s ease-out'
                             }}
                         >
@@ -720,7 +769,9 @@ const GraphScene = ({
     selectedSatellite,
     setSelectedSatellite,
     onZoomChange,
-    onWordDoubleClick
+    onWordDoubleClick,
+    pinnedSatellites = [],
+    onPinSatellite
 }: ConstellationProps & { theme: any; selectedSatellite: any; setSelectedSatellite: any }) => {
     const { camera } = useThree();
     const [nodes, setNodes] = useState<Map<string, NodeData>>(new Map());
@@ -736,7 +787,7 @@ const GraphScene = ({
 
     const { gl } = useThree();
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const ZOOM_CONCEPT = isMobile ? 8.5 : 11.0;
+    const ZOOM_CONCEPT = isMobile ? 7.0 : 9.5; // Dézoomé légèrement (était 8.5 : 11)
     const ZOOM_SATELLITE = isMobile ? 32.0 : 45.0;
 
     const targetZoomRef = useRef(showSatellites ? ZOOM_SATELLITE : ZOOM_CONCEPT);
@@ -1020,47 +1071,61 @@ const GraphScene = ({
             for (let c = 0; c < lowerCenter.length; c++) wordSeed += lowerCenter.charCodeAt(c);
             const phaseShift = (wordSeed % 100) * 0.5;
 
-            // Répartition des satellites : 2 par orbite aux extrémités opposées
+            // Répartition dynamique et évolutive des satellites (avec repositionnement en temps réel)
             const satsList = satelliteBrandables || [];
-            const totalSats = satsList.length || 6;
+            const totalSats = satsList.length || 1; // Évite la division par zéro
             const numOrbits = Math.ceil(totalSats / 2);
 
             satsList.forEach((sat, idx) => {
                 const satId = `sat-${sat.name.toLowerCase()}`;
-                if (!newNodes.has(satId)) {
-                    // Calculer l'indice de l'orbite et si on est à l'opposé
-                    const orbitIndex = Math.floor(idx / 2);
-                    const isOpposite = idx % 2 === 1;
+                
+                // -- 1. Calcul de l'angle et de la répartition dynamique --
+                // L'angle dépend du nombre TOTAL actuel de satellites (numOrbits).
+                // Si plus de satellites sont chargés, les anciens glissent en temps réel vers leur nouveau spot optimal !
+                const orbitIndex = Math.floor(idx / 2);
+                const isOpposite = idx % 2 === 1;
 
-                    // Répartition uniforme des orbites sur PI (180°), le second sat est décalé de PI supplémentaire
-                    const orbitAngle = (orbitIndex / Math.max(1, numOrbits)) * Math.PI + phaseShift;
-                    const angle = orbitAngle + (isOpposite ? Math.PI : 0);
-                    const radius = 4.3;
+                // Répartition uniforme des orbites sur PI (180°), le second sat est décalé de PI supplémentaire
+                const orbitAngle = (orbitIndex / Math.max(1, numOrbits)) * Math.PI + phaseShift;
+                const angle = orbitAngle + (isOpposite ? Math.PI : 0);
+                const radius = 4.3;
 
-                    // 2. Construction du vecteur déterministe sur la base X/Y de la caméra
-                    const offset = new THREE.Vector3()
-                        .addScaledVector(basisX, radius * Math.cos(angle))
-                        .addScaledVector(basisY, radius * Math.sin(angle));
-                    
-                    // 3. Variation en profondeur PAR ORBITE pour que les ellipses se superposent parfaitement en 3D
-                    const depthSign = (orbitIndex % 2 === 0) ? 1 : -1;
-                    const depthVariance = 0.75 * depthSign;
-                    offset.addScaledVector(basisZ, depthVariance);
-                    
-                    const bestPos = activeNode.targetPos.clone().add(offset);
+                // -- 2. Construction de la cible spatiale initiale --
+                const offset = new THREE.Vector3()
+                    .addScaledVector(basisX, radius * Math.cos(angle))
+                    .addScaledVector(basisY, radius * Math.sin(angle));
+                
+                // Variation en profondeur partagée PAR ORBITE
+                const depthSign = (orbitIndex % 2 === 0) ? 1 : -1;
+                const depthVariance = 0.75 * depthSign;
+                offset.addScaledVector(basisZ, depthVariance);
+                
+                const bestPos = activeNode.targetPos.clone().add(offset);
+                const isLeader = !isOpposite; // Premier satellite du couple dessine l'orbite unique
 
-                    // Déploiement unique : si déjà affiché dans l'état précédent, apparaît naturellement à sa position cible
-                    const alreadyDeployed = prevNodes.has(satId);
-                    const startPos = alreadyDeployed ? bestPos.clone() : activeNode.targetPos.clone();
-
+                // -- 3. Mise à jour ou création du noeud avec les métadonnées dynamiques --
+                if (newNodes.has(satId)) {
+                    const existingNode = newNodes.get(satId);
+                    if (existingNode) {
+                        // On met à jour les données mathématiques qui seront lues par useFrame en direct !
+                        existingNode.orbitAngleCached = angle;
+                        existingNode.orbitDepthVariance = depthVariance;
+                        existingNode.isOrbitLeader = isLeader;
+                        existingNode.targetPos = bestPos; // Conserver pour compatibilité startPos
+                    }
+                } else {
+                    // Création initiale du satellite
                     newNodes.set(satId, {
                         id: satId,
                         label: sat.name,
-                        startPos,
+                        description: sat.desc,
+                        startPos: activeNode.targetPos.clone(),
                         targetPos: bestPos,
                         parentId: lowerCenter,
                         isSatellite: true,
-                        description: sat.desc
+                        isOrbitLeader: isLeader,
+                        orbitAngleCached: angle,
+                        orbitDepthVariance: depthVariance
                     });
                 }
             });
@@ -1424,6 +1489,8 @@ const GraphScene = ({
                         isSelectedSatellite={selectedSatellite?.name === node.label}
                         setSelectedSatellite={setSelectedSatellite}
                         onDoubleClick={onWordDoubleClick}
+                        isPinned={(pinnedSatellites || []).some(p => p.name.toLowerCase() === node.label.toLowerCase())}
+                        onPinSatellite={onPinSatellite}
                     />
                 ))}
             </group>
@@ -1481,19 +1548,11 @@ export default function Constellation3DV2(props: ConstellationProps) {
                         className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-4 right-4 sm:left-auto sm:right-8 z-40 sm:w-full sm:max-w-sm pointer-events-none"
                     >
                         <div 
-                            className="p-6 backdrop-blur-xl rounded-none"
+                            className="p-0 backdrop-blur-none rounded-none pointer-events-none"
                             style={{ 
-                                backgroundColor: theme.id === 'POETIC_LIGHT' ? 'rgba(255, 255, 255, 0.75)' : theme.id === 'RAW_MINIMAL' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(10, 10, 10, 0.65)',
-                                borderColor: 'var(--theme-primary)',
-                                boxShadow: theme.id === 'POETIC_LIGHT' 
-                                    ? '0 20px 40px rgba(0, 0, 0, 0.05), 0 0 20px rgba(245, 166, 35, 0.1)' 
-                                    : theme.id === 'RAW_MINIMAL'
-                                        ? '0 20px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 255, 255, 0.05)'
-                                        : '0 20px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(245, 166, 35, 0.15)',
-                                borderLeftWidth: '2px',
-                                borderTopWidth: '1px',
-                                borderBottomWidth: '1px',
-                                borderRightWidth: '1px'
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                boxShadow: 'none'
                             }}
                         >
                             <h3 
