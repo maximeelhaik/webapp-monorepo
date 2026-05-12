@@ -32,7 +32,7 @@ export default async function handler(req: Request) {
   let exclude: string[] = [];
   let conceptsCount = 5;
   let brandablesCount = 5;
-  let sector = "startup tech / IA"; // Default sector
+  let sector = "";
   let temperature: number | undefined;
   let maxOutputTokens: number | undefined;
 
@@ -65,10 +65,12 @@ export default async function handler(req: Request) {
   const isNamingMode = mode === "naming";
 
   // Instruction Contextuelle Temporelle
-  const temporalContext = `\nCONTEXTE : Nous sommes en 2026. Secteur cible : ${sector}.  
-\n`;
+  const temporalContext = `\nCONTEXTE : Nous sommes en 2026.`;
+  const sectorContext = sector ? ` Secteur cible : ${sector}.` : '';
+  
+  const finalContext = temporalContext + sectorContext + "\n";
 
-  let namingInstruction = `Tu es un expert en naming stratégique et linguistique créative.\nPour le concept central "${cleanPrompt}", génère ce qui est demandé.\n${temporalContext}\n`;
+  let namingInstruction = `Tu es un expert en naming stratégique et linguistique créative.\nPour le concept central "${cleanPrompt}", génère ce qui est demandé.\n${finalContext}\n`;
   let formatInstruction = `FORMAT DE RÉPONSE STRICT (sans introduction, sans commentaire, sans numérotation) :\n`;
 
   const conceptsPrompt = `  - Exactement ${conceptsCount} CONCEPTS connexes qui serviront de terrain d'inspiration et de navigation - trouve des mots uniques qui ouvrent des chemins de pensée variés.
@@ -78,14 +80,14 @@ export default async function handler(req: Request) {
   3. ÉVITE les synonymes directs de "${cleanPrompt}".
   4. En minuscules, séparés par le symbole '|'.`;
 
-  const brandablesPrompt = `  - Exactement ${brandablesCount} BRANDABLES : Noms de marque crédibles pour le secteur ${sector}.
+  const brandablesPrompt = `  - Exactement ${brandablesCount} BRANDABLES : Noms de marque crédibles${sector ? ` pour le secteur ${sector}` : ''}.
   RÈGLES STRICTES POUR LES BRANDABLES :
   Utilise les TECHNIQUES DE NAMING suivantes de manière créative et diversifiée, assure-toi d'utiliser au moins 4 techniques différentes dans ta liste :
   - Traduction du mot "${cleanPrompt}" dans d'autres langues : japonais, basque, finnois, grec, islandais, malgache, sanskrit, etc.
   - Portmanteau : Fusion de deux mots 
   - Troncation : Raccourcissement créatif 
   - Expression française rare et percutante
-
+ 
 
   CRITÈRES DE QUALITÉ OBLIGATOIRES :
   1. Longueur : mot de 3 à 15 lettres, ou expression de 2 à 4 mots
@@ -141,17 +143,17 @@ export default async function handler(req: Request) {
 
   if (!isNamingMode) {
     if (finalTemperature === undefined) finalTemperature = 0.7;
-    if (finalMaxTokens === undefined) finalMaxTokens = 200;
+    if (finalMaxTokens === undefined) finalMaxTokens = 400;
   } else {
     if (target === 'concepts') {
       if (finalTemperature === undefined) finalTemperature = 0.6; // Plus factuel et sémantiquement proche
       if (finalMaxTokens === undefined) finalMaxTokens = 400; // Uniquement des mots
     } else if (target === 'brandables') {
       if (finalTemperature === undefined) finalTemperature = 0.95; // Créativité maximale pour les néologismes
-      if (finalMaxTokens === undefined) finalMaxTokens = 800; // Besoin de place pour les descriptions
+      if (finalMaxTokens === undefined) finalMaxTokens = 1000; // Besoin de place pour les descriptions
     } else {
       if (finalTemperature === undefined) finalTemperature = 0.85; // Équilibre entre concept et création
-      if (finalMaxTokens === undefined) finalMaxTokens = 1200; // Les deux listes combinées
+      if (finalMaxTokens === undefined) finalMaxTokens = 1400; // Les deux listes combinées
     }
   }
 

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion';
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
+import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import Constellation3DV2 from './components/Constellation3DV2';
 import { ACTIVE_THEME, THEMES } from './theme';
 
@@ -10,6 +10,310 @@ const BOOT_LINES = [
   { cls: 'boot-line boot-line-3', text: 'MAPPING SYSTEM: READY' },
   { cls: 'boot-line boot-line-4', text: '▶ ENTER' },
 ];
+
+const INTRO_WORDS = [
+  "entropie", "mémoire", "lumière", "système", "origine",
+  "données", "réseau", "synapse", "modèle", "structure",
+  "quantum", "chaos", "harmonie", "fractale", "algorithme",
+  "éther", "matrice", "vérité", "illusion", "spectre",
+  "résonance", "matière", "espace", "temps", "évolution",
+  "conscience", "énergie", "gravité", "horizon", "fleur",
+  "paradigme", "ontologie", "sémantique", "cognition", "flux",
+  "cosmos", "orbite", "atome", "prisme", "nexus", "atlas",
+  "écho", "hélice", "plasma", "pulsar", "aura", "onde",
+  "noyau", "cycle", "infini", "genèse", "vision", "clarté",
+  "abysse", "zénith", "nadir", "apex", "delta", "cristal",
+  "source", "dualité", "symétrie", "vortex", "songe", "mythe",
+  "logos", "éclosion", "stase", "rayon", "archétype", "stèle"
+];
+
+// --- RENDERER INDIVIDUEL POUR EFFET MAGNÉTIQUE LOCALISÉ ---
+const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, activeTheme }: { node: any, springX: any, springY: any, onWordClick: any, clickedWord: string | null, activeTheme: string }) => {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const isClicked = clickedWord === node.word;
+  const isFading = clickedWord !== null && !isClicked;
+
+  // Coordonnée théorique normalisée à l'écran (-0.5 à 0.5)
+  const anchorX = (node.x / 100) - 0.5;
+  const anchorY = (node.y / 100) - 0.5;
+
+  // Calcul du magnétisme exclusif à CE nœud via Motion Values composite (Zéro Re-render)
+  const magneticX = useTransform([springX, springY], ([mx, my]) => {
+    if (isClicked) return 0;
+    const dx = (mx as number) - anchorX;
+    const dy = (my as number) - anchorY;
+    // Rayon réduit pour plus de subtilité (comme demandé)
+    const dist = Math.hypot(dx, dy * 0.65);
+    const limit = isMobile ? 0.14 : 0.21;
+    
+    if (dist < limit) {
+      // Courbe adoucie (puissance 2.8 au lieu de 2.2 pour une sortie de zone plus douce)
+      const power = Math.pow(1 - (dist / limit), 2.8);
+      const vectorX = dx / dist; 
+      return node.polarity * (vectorX * power * node.magPowerX);
+    }
+    return 0;
+  });
+
+  const magneticY = useTransform([springX, springY], ([mx, my]) => {
+    if (isClicked) return 0;
+    const dx = (mx as number) - anchorX;
+    const dy = (my as number) - anchorY;
+    const dist = Math.hypot(dx, dy * 0.65);
+    const limit = isMobile ? 0.14 : 0.21;
+    
+    if (dist < limit) {
+      const power = Math.pow(1 - (dist / limit), 2.8);
+      const vectorY = dy / dist; 
+      return node.polarity * (vectorY * power * node.magPowerY);
+    }
+    return 0;
+  });
+
+  return (
+    <motion.div
+      initial={{ left: `${node.x}%`, top: `${node.y}%`, opacity: 0, zIndex: 10 }}
+      animate={{
+        // OPTIMISATION CRITIQUE: On n'anime PLUS le layout (left/top) en continu !
+        // Cela supprime le reflow constant du navigateur et garantit un 60fps stable.
+        left: isClicked ? "50%" : `${node.x}%`,
+        top: isClicked ? "50%" : `${node.y}%`,
+        opacity: isFading ? 0 : (isClicked ? 1 : [0.4, 0.8, 0.4]),
+        zIndex: isClicked ? 100 : 10,
+      }}
+      transition={
+        isClicked ? {
+          duration: 0.8,
+          ease: [0.16, 1, 0.3, 1]
+        } : {
+          opacity: { duration: 3 + Math.random() * 3, repeat: Infinity, repeatType: "mirror" }
+        }
+      }
+      className={`absolute flex items-center justify-center ${isClicked ? 'pointer-events-none' : 'pointer-events-auto hover:z-20'}`}
+      style={{ width: 0, height: 0, translateX: '-50%', translateY: '-50%' }}
+    >
+      {/* COUCHE DE DÉRIVE IDLE : Accélérée par GPU via 'translate' au lieu de 'left/top' */}
+      <motion.div
+        animate={isClicked ? { x: 0, y: 0 } : {
+            x: [0, node.driftX, 0],
+            y: [0, node.driftY, 0]
+        }}
+        transition={isClicked ? { duration: 0.8, ease: "easeOut" } : {
+            duration: node.duration,
+            repeat: Infinity,
+            delay: node.delay,
+            ease: "easeInOut"
+        }}
+        style={{ width: 0, height: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        {/* COUCHE MAGNÉTIQUE : Rendu isolé haute fréquence */}
+        <motion.div 
+          style={{ 
+            x: magneticX, 
+            y: magneticY, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            position: 'relative' 
+          }}
+        >
+          {/* Glowing background (active only) */}
+          <AnimatePresence>
+            {isClicked && (
+              <div className="absolute pointer-events-none" style={{ top: 0, left: 0, transform: 'translate(-50%, -50%)' }}>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 0.13, scale: 1 }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                  className="rounded-full"
+                  style={{
+                    width: '60px',
+                    height: '60px',
+                    background: 'var(--theme-primary)',
+                    filter: 'blur(4px)'
+                  }}
+                />
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* The Node (Dot -> Diamond) */}
+          <div className="absolute pointer-events-none" style={{ top: 0, left: 0, transform: 'translate(-50%, -50%)' }}>
+            <motion.div
+              animate={{
+                width: isClicked ? 12 : 6,
+                height: isClicked ? 12 : 6,
+                borderRadius: isClicked ? '0%' : '50%',
+                rotate: isClicked ? 45 : 0,
+              }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+              className="pointer-events-none"
+              style={{
+                backgroundColor: isClicked ? 'var(--theme-primary)' : 'var(--theme-text)',
+                boxShadow: isClicked ? '0 0 10px var(--theme-primary)' : '0 0 5px var(--theme-text)',
+                opacity: isClicked ? 1 : 0.85
+              }}
+            />
+          </div>
+
+          {/* Crosshair (active only) */}
+          <AnimatePresence>
+            {isClicked && (
+              <div className="absolute pointer-events-none" style={{ top: 0, left: 0, transform: 'translate(-50%, -50%)' }}>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.3 }}
+                  transition={{ delay: 0.2, duration: 0.6 }}
+                  className="pointer-events-none flex items-center justify-center"
+                  style={{ width: 0, height: 0 }}
+                >
+                  <div className="absolute w-[40px] h-[1px] bg-white" style={{ transform: 'rotate(45deg)' }} />
+                  <div className="absolute w-[40px] h-[1px] bg-white" style={{ transform: 'rotate(-45deg)' }} />
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* The Label */}
+          <div className="absolute pointer-events-none" style={{ top: 0, left: 0, transform: 'translate(-50%, -50%)' }}>
+            <motion.div
+              animate={{
+                y: isClicked ? (isMobile ? 52 : 45) : (isMobile ? 12 : 15),
+                color: isClicked ? 'var(--theme-bg)' : 'var(--theme-text)',
+                backgroundColor: isClicked ? 'var(--theme-primary)' : 'transparent',
+                borderColor: isClicked ? 'var(--theme-primary)' : 'transparent',
+              }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+              className="whitespace-nowrap pointer-events-none flex items-center justify-center border"
+              style={{
+                fontFamily: 'var(--app-font-display)',
+                fontSize: isClicked ? (isMobile ? '13px' : '14px') : '14px',
+                fontWeight: 700, // Elevate all concepts to Bold globally
+                letterSpacing: isClicked ? '0.15em' : '0.05em',
+                padding: isClicked ? '4px 10px' : '4px',
+                boxShadow: isClicked 
+                  ? (activeTheme === 'POETIC_LIGHT' ? 'none' : (activeTheme === 'RAW_MINIMAL' ? '0 0 20px rgba(255, 255, 255, 0.2)' : '0 0 20px rgba(245, 166, 35, 0.3)'))
+                  : 'none',
+              }}
+            >
+              {node.formattedWord}
+            </motion.div>
+          </div>
+
+          {/* Clickable Hit Area (Expanded) */}
+          {!isClicked && (
+            <div
+              className="absolute bg-transparent cursor-pointer pointer-events-auto"
+              style={{ 
+                width: '120px', 
+                height: '60px', 
+                top: 0, 
+                left: 0, 
+                transform: 'translate(-50%, -50%)',
+                zIndex: 10 
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (clickedWord) return;
+                onWordClick(node.word);
+              }}
+            />
+          )}
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+});
+
+const IntroFloatingNodes = memo(({ onWordClick, clickedWord, activeTheme }: { onWordClick: (word: string) => void, clickedWord: string | null, activeTheme: string }) => {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
+  // --- DESIGN SPELL : INDEPENDENT MAGNETIC TRACKING ---
+  const rawX = useMotionValue(0);
+  const rawY = useMotionValue(0);
+  // Spring dynamique et fluide
+  const springConfig = { damping: 40, stiffness: 120, mass: 1 };
+  const springX = useSpring(rawX, springConfig);
+  const springY = useSpring(rawY, springConfig);
+
+  useEffect(() => {
+    if (clickedWord !== null) {
+      rawX.set(0);
+      rawY.set(0);
+      return;
+    }
+
+    const handleMove = (e: MouseEvent) => {
+      const { innerWidth, innerHeight } = window;
+      // Coordonnées normalisées -0.5 à 0.5
+      rawX.set((e.clientX / innerWidth) - 0.5);
+      rawY.set((e.clientY / innerHeight) - 0.5);
+    };
+    
+    window.addEventListener('mousemove', handleMove);
+    return () => window.removeEventListener('mousemove', handleMove);
+  }, [clickedWord, rawX, rawY]);
+
+  // --- PACKING HOMOGÈNE (FIBONACCI SUNFLOWER AGRANDI) ---
+  const nodes = useMemo(() => {
+    const total = INTRO_WORDS.length;
+    
+    return INTRO_WORDS.map((word, i) => {
+      const phi = (Math.sqrt(5) + 1) / 2;
+      const goldenAngle = 2 * Math.PI / (phi * phi);
+      
+      // On commence avec un décalage pour évider le centre pour le titre
+      const t = (i + 10) / (total + 10); 
+      const rawR = Math.sqrt(t); 
+      
+      // Rayon max agrandi pour envahir les angles comme demandé (125 vs 85)
+      const minRadius = isMobile ? 25 : 26;
+      const maxRadius = isMobile ? 80 : 125; 
+      const currentRadius = minRadius + (maxRadius - minRadius) * rawR;
+      
+      const angle = i * goldenAngle;
+
+      // Étire l'aspect horizontal sur les desktops larges
+      const aspect = isMobile ? 1.0 : 1.35;
+
+      const posX = 50 + Math.cos(angle) * currentRadius * 0.5 * aspect;
+      const posY = 50 + Math.sin(angle) * currentRadius * 0.5;
+
+      const duration = 25 + Math.random() * 20;
+      const delay = Math.random() * -20;
+      
+      const driftX = (Math.random() - 0.5) * 25; // Maintenant en PIXELS pour une translation GPU fluide
+      const driftY = (Math.random() - 0.5) * 25;
+      const formattedWord = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+
+      // Paramètres magnétiques réduits et adoucis pour plus de subtilité
+      const magPowerX = (isMobile ? 15 : 28) * (0.8 + Math.random() * 0.6);
+      const magPowerY = (isMobile ? 15 : 28) * (0.8 + Math.random() * 0.6);
+      // Force de traction : 100% Attraction (pure) pour faciliter le clic
+      const polarity = 1; 
+
+      return { id: i, word, x: posX, y: posY, duration, delay, driftX, driftY, formattedWord, magPowerX, magPowerY, polarity };
+    });
+  }, [isMobile]);
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
+      {nodes.map(node => (
+        <FloatingNode 
+          key={node.id} 
+          node={node} 
+          springX={springX} 
+          springY={springY} 
+          onWordClick={onWordClick} 
+          clickedWord={clickedWord}
+          activeTheme={activeTheme}
+        />
+      ))}
+    </div>
+  );
+});
+
 
 
 // --- ENGINES FOR STRICT RENDER FONT AUDITING ---
@@ -87,8 +391,9 @@ const logRenderedFonts = () => {
 
 const LANGUAGES = {
   fr: {
-    subtitle: "Cartographie des relations sémantiques.",
+    subtitle: "Explorez un univers de significations à travers une cartographie interactive en 3D. Entrez une idée pour générer des noms de marque évocateurs et naviguer parmi des connexions sémantiques infinies.",
     placeholderInit: "Entrez un mot",
+    placeholderSector: "Secteur d'activité (optionnel)",
     placeholderSearch: "Rechercher",
     btnExplore: "Explorer",
     btnLoading: "Chargement...",
@@ -108,8 +413,9 @@ const LANGUAGES = {
     errDefault: "Une erreur est survenue. Veuillez réessayer."
   },
   en: {
-    subtitle: "A 3D map of semantic relationships.",
+    subtitle: "Explore a universe of meaning through an interactive 3D map. Enter an idea to generate evocative brand names and navigate through infinite semantic connections.",
     placeholderInit: "Explore a concept",
+    placeholderSector: "Industry sector (optional)",
     placeholderSearch: "Search",
     btnExplore: "Explore",
     btnLoading: "Loading...",
@@ -154,9 +460,39 @@ export default function App() {
   const [satelliteBrandables, setSatelliteBrandables] = useState<Record<string, { name: string; desc: string }[]>>({});
   const [satelliteReserve, setSatelliteReserve] = useState<Record<string, { name: string; desc: string }[]>>({});
   const [pinnedSatellites, setPinnedSatellites] = useState<{ name: string; desc: string }[]>([]);
+  const [selectedSatellite, setSelectedSatellite] = useState<{ name: string; desc: string } | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [labelsOpaque, setLabelsOpaque] = useState(true); // Par défaut en mode étiquette visible
   const [showSatellites, setShowSatellites] = useState(true);
+  const [clickedIntroWord, setClickedIntroWord] = useState<string | null>(null);
+
+  const handleNavigateWordRef = useRef<any>(null);
+  // Keep the ref updated with the latest function so we never call a stale one,
+  // without needing to put handleNavigateWord in useCallback dependencies.
+  useEffect(() => {
+    handleNavigateWordRef.current = handleNavigateWord;
+  });
+
+  const handleIntroWordClick = useCallback((word: string) => {
+    if (clickedIntroWord) return;
+    setClickedIntroWord(word);
+    
+    // Démarrer la requête en arrière-plan IMMÉDIATEMENT sans afficher la carte
+    if (handleNavigateWordRef.current) {
+      handleNavigateWordRef.current(word, true, true);
+    }
+  }, [clickedIntroWord]);
+
+  // Nettoyer la description si les satellites sont masqués ou si le mot central change
+  useEffect(() => {
+    if (!showSatellites) {
+      setSelectedSatellite(null);
+    }
+  }, [showSatellites]);
+
+  useEffect(() => {
+    setSelectedSatellite(null);
+  }, [centerWord]);
   const [userPreferredShowSatellites, setUserPreferredShowSatellites] = useState(true);
   const [lang, setLang] = useState<'fr' | 'en'>(() => {
     if (typeof window !== 'undefined') {
@@ -168,11 +504,11 @@ export default function App() {
     return 'fr';
   });
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   const useNaming = true;
-  const [sector, setSector] = useState("startup tech / IA");
+  const [sector, setSector] = useState("");
 
   useEffect(() => {
     localStorage.setItem('app-lang', lang);
@@ -230,6 +566,11 @@ export default function App() {
         ) {
           newType = 'pointer';
         }
+
+        // FALLBACK MAGIQUE : Détecter aussi si le CSS dit pointer (gère ThreeJS canvas)
+        if (newType !== 'pointer' && (window.getComputedStyle(target).cursor === 'pointer' || document.body.style.cursor === 'pointer')) {
+          newType = 'pointer';
+        }
       }
 
       if (newType !== cursorTypeRef.current) {
@@ -283,53 +624,53 @@ export default function App() {
   useEffect(() => {
     if (!centerWord) return;
     const lowerTarget = centerWord.toLowerCase();
-    
+
     // Remonter la chaîne des parents pour trouver la lignée directe
     const path: string[] = [];
     let curr: string | undefined = lowerTarget;
-    
+
     // Sécurité pour éviter les boucles infinies
     const visited = new Set<string>();
-    
+
     while (curr && !visited.has(curr)) {
       visited.add(curr);
       // Récupérer la casse d'origine, sinon capitaliser la première lettre
       const casedWord = casingMap[curr] || (curr.charAt(0).toUpperCase() + curr.slice(1));
       path.push(casedWord);
-      
+
       // Passer au parent
       const parentWord: string | undefined = parentsMap[curr];
       curr = parentWord ? parentWord.toLowerCase() : undefined;
     }
-    
+
     const calculatedPath = path.reverse();
-    
+
     setHistory(prevHistory => {
       // Vérifier si le nouveau chemin (calculatedPath) est un préfixe de l'ancien (prevHistory)
       // Cela se produit quand on remonte dans la même lignée (ex: Fleur > Plante > Racine, on clique sur Plante)
       let isPrefix = false;
       if (prevHistory.length >= calculatedPath.length) {
-        isPrefix = calculatedPath.every((word, index) => 
+        isPrefix = calculatedPath.every((word, index) =>
           word.toLowerCase() === prevHistory[index].toLowerCase()
         );
       }
-      
+
       if (isPrefix) {
         console.log(`%c[FIL D'ARIANE] ⏪ Navigation en arrière détectée. Conservation de la lignée complète:`, 'color: #3b82f6; font-weight: bold;', prevHistory.join(' > '));
         return prevHistory;
       }
-      
+
       console.log(`%c[FIL D'ARIANE] 🧵 Nouvelle lignée calculée pour "${centerWord}":`, 'color: #f59e0b; font-weight: bold;', calculatedPath.join(' > '));
-      console.log(`%c[FIL D'ARIANE] 🔍 Détails Arborescence:`, 'color: #94a3b8;', 
+      console.log(`%c[FIL D'ARIANE] 🔍 Détails Arborescence:`, 'color: #94a3b8;',
         visited.size > 0 ? Array.from(visited).map(v => `${v} (parent: ${parentsMap[v] || 'aucun'})`).join(' <- ') : 'Racine'
       );
-      
+
       return calculatedPath;
     });
   }, [centerWord, parentsMap, casingMap]);
 
   // Fetch words with streaming
-  const handleNavigateWord = async (nextWord: string, isSearch: boolean = false) => {
+  const handleNavigateWord = async (nextWord: string, isSearch: boolean = false, isFromIntro: boolean = false) => {
     if (!nextWord.trim()) return;
 
     const wasInSatelliteMode = showSatellites;
@@ -380,13 +721,18 @@ export default function App() {
     // Cas 1 : Déjà exploré (dans le cache)
     if (exploredCache[lowerNext]) {
       console.log(`%c[Constellation] 🧠 Récupération depuis le cache : "${nextWord}"`, 'color: #10b981; font-weight: bold');
-      
+
       const cachedWords = exploredCache[lowerNext] || [];
       const currentNeighbors = Array.from(neighbors).filter(n => cachedWords.map(w => w.toLowerCase()).includes(n.toLowerCase()));
-      
+
       const toShow = currentNeighbors.length > 0 ? currentNeighbors : cachedWords.slice(0, 5);
       setRelatedWords(toShow);
-      setInitialized(true); 
+      
+      if (isFromIntro) {
+        setTimeout(() => setInitialized(true), 800);
+      } else {
+        setInitialized(true);
+      }
 
       // Préchauffage des satellites en arrière-plan si absents du cache
       if (useNaming && !hasSatellites) {
@@ -403,7 +749,12 @@ export default function App() {
     if (!isSearch && wasAlreadyOnMap && initialized) {
       console.log(`%c[Constellation] 📍 Déplacement simple vers "${nextWord}"`, 'color: #3b82f6; font-style: italic;');
       setRelatedWords(Array.from(neighbors)); // Affiche les connexions existantes sur la map
-      setInitialized(true);
+      
+      if (isFromIntro) {
+        setTimeout(() => setInitialized(true), 800);
+      } else {
+        setInitialized(true);
+      }
 
       // Préchauffage des satellites en arrière-plan
       if (useNaming && !hasSatellites) {
@@ -448,14 +799,14 @@ export default function App() {
       const generatePromise = fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          prompt: nextWord, 
+        body: JSON.stringify({
+          prompt: nextWord,
           app: 'constellation',
           mode: useNaming ? 'naming' : 'classic',
           target: useNaming ? 'both' : 'concepts', // Toujours récupérer les deux si useNaming est actif (évite la latence)
           conceptsCount: 10,
           brandablesCount: 18, // Création de 18 items pour alimenter la réserve locale
-          sector: useNaming ? sector : undefined
+          sector: (useNaming && sector) ? sector : undefined
         }),
         signal: abortController.signal
       });
@@ -575,7 +926,7 @@ export default function App() {
           finalWords = Array.from(new Set(rawWords)).slice(0, 10);
 
           if (finalWords.length > 0) {
-            setInitialized(true); // Active l'affichage du graphe 3D dès que les premiers mots sont prêts
+            if (!isFromIntro) setInitialized(true); // Active l'affichage du graphe 3D dès que les premiers mots sont prêts
 
             // Mettre à jour le casing map pour les related words aussi
             setCasingMap(prev => {
@@ -688,7 +1039,13 @@ export default function App() {
         */
       }
 
-      setInitialized(true); // Active le graphe 3D au cas où
+      if (isFromIntro) {
+        const elapsed = performance.now() - startTime;
+        const remaining = Math.max(0, 800 - elapsed);
+        setTimeout(() => setInitialized(true), remaining);
+      } else {
+        setInitialized(true); // Active le graphe 3D au cas où
+      }
       console.log(`%c[CONSTELLATION] ✅ Graphe étendu: [${finalWords.join(', ')}]`, 'color: #10b981; font-weight: bold;');
       console.log(`%c[CONSTELLATION] ⏱️ Temps total: ${Math.round(performance.now() - startTime)}ms`, 'color: #94a3b8;');
 
@@ -717,7 +1074,7 @@ export default function App() {
 
       const existingNamesSet = new Set((satelliteBrandables[lowerWord] || []).map(b => b.name.toLowerCase()));
       const unusedBrandables = (satelliteReserve[lowerWord] || []).filter(b => !existingNamesSet.has(b.name.toLowerCase()));
-      let newBrandablesToUse: {name: string; desc: string}[] = [];
+      let newBrandablesToUse: { name: string; desc: string }[] = [];
 
       console.log(`%c[SATELLITES] 📊 État de la réserve locale pour "${word}" : ${unusedBrandables.length} disponibles / 6 requis`, 'color: #94a3b8; font-style: italic;');
 
@@ -741,23 +1098,23 @@ export default function App() {
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            prompt: word, 
+          body: JSON.stringify({
+            prompt: word,
             app: 'constellation',
             mode: 'naming', // Toujours naming pour satellites
             target: 'brandables',
             brandablesCount: 18,
             exclude: excludeList,
-            sector: sector
+            sector: (useNaming && sector) ? sector : undefined
           })
         });
 
         if (!response.ok) throw new Error(`Erreur serveur satellites (${response.status})`);
-        
+
         const responseText = await response.text();
         const brandableItems: { name: string; desc: string }[] = [];
         const rawBrandableParts = responseText.split(/[|\n]/);
-        
+
         const currentReserveSet = new Set(excludeList);
 
         rawBrandableParts.forEach(item => {
@@ -786,7 +1143,7 @@ export default function App() {
             };
           });
         }
-        
+
         const allUnused = [...unusedBrandables, ...brandableItems];
         newBrandablesToUse = allUnused.slice(0, 6);
         console.log(`%c[SATELLITES] ✨ Affichage des 6 nouveaux satellites. Stock restant en réserve: ${allUnused.length - newBrandablesToUse.length}`, 'color: #10b981;');
@@ -853,19 +1210,19 @@ export default function App() {
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            prompt: word, 
+          body: JSON.stringify({
+            prompt: word,
             app: 'constellation',
             mode: useNaming ? 'naming' : 'classic',
             target: 'concepts',
             conceptsCount: 10,
             exclude: Array.from(alreadyKnown),
-            sector: useNaming ? sector : undefined
+            sector: (useNaming && sector) ? sector : undefined
           })
         });
 
         if (!response.ok) throw new Error(`Erreur serveur connexes (${response.status})`);
-        
+
         const responseText = await response.text();
         const parts = responseText.split(/[|\n]/);
         const rawWords = parts
@@ -880,14 +1237,14 @@ export default function App() {
 
         const newGeneratedWords = Array.from(new Set(rawWords)).slice(0, 10);
         console.log(`%c[CONNEXES] 📥 IA RÉPONSE : ${newGeneratedWords.length} connexes générés avec succès.`, 'color: #10b981; font-weight: bold;');
-        
+
         if (newGeneratedWords.length > 0) {
           setExploredCache(prev => {
             const currentCacheWords = prev[lowerWord] || [];
             return { ...prev, [lowerWord]: Array.from(new Set([...currentCacheWords, ...newGeneratedWords])) };
           });
         }
-        
+
         const allUnused = [...unusedConcepts, ...newGeneratedWords];
         newWordsToUse = Array.from(new Set(allUnused)).slice(0, 5);
         console.log(`%c[CONNEXES] ✨ Affichage des 5 nouveaux connexes. Stock restant en réserve: ${allUnused.length - newWordsToUse.length}`, 'color: #10b981;');
@@ -1008,7 +1365,7 @@ export default function App() {
   const handleZoomChange = useCallback((zoom: number) => {
     const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
     const maxSatZoom = isMobileDevice ? 10 : 18;
-    
+
     const shouldShowSatellites = zoom > maxSatZoom;
     setShowSatellites(shouldShowSatellites);
     // Crucial fix: Sync the user's intent to ensure zooming toggles the mode unconditionally
@@ -1170,7 +1527,7 @@ export default function App() {
 
   const handleRegenerateSector = () => {
     if (!centerWord) return;
-    
+
     // Vider le cache de satellites pour forcer une nouvelle génération
     setSatelliteBrandables(prev => {
       const copy = { ...prev };
@@ -1182,17 +1539,17 @@ export default function App() {
       delete copy[centerWord.toLowerCase()];
       return copy;
     });
-    
+
     // Forcer l'affichage du mode satellites si on y était pas
     if (!showSatellites) {
       setShowSatellites(true);
       setUserPreferredShowSatellites(true);
     }
-    
+
     // Lancer la génération
     handleGenerateSatellites(centerWord);
   };
-  
+
   const handlePinSatellite = useCallback((sat: { name: string; desc: string }) => {
     setPinnedSatellites(prev => {
       const exists = prev.find(p => p.name.toLowerCase() === sat.name.toLowerCase());
@@ -1209,6 +1566,20 @@ export default function App() {
     if (!inputWord.trim()) return;
     handleNavigateWord(inputWord.trim(), true);
     setInputWord('');
+  };
+
+  const handleBackToHome = () => {
+    setInitialized(false);
+    setClickedIntroWord(null);
+    setCenterWord('');
+    setRelatedWords([]);
+    setAllNodesOnMap([]);
+    setEdges(new Set());
+    setParentsMap({});
+    setSeeds([]);
+    setHistory([]);
+    setInputWord('');
+    setSelectedSatellite(null);
   };
 
   const currentTheme = THEMES[activeTheme] || THEMES.AMBER;
@@ -1236,8 +1607,8 @@ export default function App() {
     '--theme-border-width': currentTheme.ui.borderWidth,
     '--theme-shadow': currentTheme.ui.boxShadow,
     '--theme-button-shadow': currentTheme.ui.buttonShadow,
-    '--app-scanline-opacity': activeTheme === 'AMBER' ? '0.015' : activeTheme === 'RAW_MINIMAL' ? '0.00' : '0.003',
-    '--app-vignette-opacity': activeTheme === 'AMBER' ? '0.30' : activeTheme === 'RAW_MINIMAL' ? '0.00' : '0.05',
+    '--app-scanline-opacity': activeTheme === 'POETIC_LIGHT' ? '0.00' : activeTheme === 'AMBER' ? '0.004' : activeTheme === 'RAW_MINIMAL' ? '0.00' : '0.003',
+    '--app-vignette-opacity': activeTheme === 'POETIC_LIGHT' ? '0.00' : activeTheme === 'AMBER' ? '0.22' : activeTheme === 'RAW_MINIMAL' ? '0.00' : '0.05',
     backgroundColor: 'var(--theme-bg)',
     color: 'var(--theme-text)',
     fontFamily: 'var(--app-font-body)',
@@ -1249,6 +1620,7 @@ export default function App() {
       style={themeStyle}
     >
       {/* Texture overlays */}
+      <div className="point-grid" />
       <div className="scanlines" />
       <div className="vignette" />
 
@@ -1308,6 +1680,8 @@ export default function App() {
           onWordDoubleClick={handleDoubleClickWord}
           pinnedSatellites={pinnedSatellites}
           onPinSatellite={handlePinSatellite}
+          selectedSatellite={selectedSatellite}
+          setSelectedSatellite={setSelectedSatellite}
         />
       )}
 
@@ -1319,30 +1693,31 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.6 } }}
-            className="absolute inset-0 z-30 flex flex-col justify-center items-center px-6 pointer-events-auto"
+            className="absolute inset-0 z-30 flex flex-col justify-center items-center px-6 pointer-events-none"
           >
-            <div className="max-w-2xl w-full flex flex-col items-center text-center gap-8 relative">
+            <IntroFloatingNodes onWordClick={handleIntroWordClick} clickedWord={clickedIntroWord} activeTheme={activeTheme} />
+
+            <div className="max-w-3xl w-full flex flex-col items-center text-center relative z-20 pointer-events-auto">
               {/* Visual glow backdrop */}
               <div
-                className="absolute w-[350px] h-[350px] rounded-full blur-[100px] opacity-[0.08] pointer-events-none"
+                className="absolute w-[400px] h-[400px] rounded-full blur-[120px] opacity-[0.05] pointer-events-none"
                 style={{ background: 'var(--theme-primary)' }}
               />
 
-              {/* Animated title */}
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 0.1, duration: 0.8 }}
-                className="flex flex-col items-center gap-3 relative"
+                animate={{ scale: clickedIntroWord ? 0.95 : 1, opacity: clickedIntroWord ? 0 : 1 }}
+                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                className="flex flex-col items-center relative z-20 w-full"
               >
                 <h1
                   className="font-bold tracking-[-0.02em] leading-none select-none app-title"
                   style={{
-                    fontSize: 'clamp(2.8rem, 8vw, 5.5rem)',
+                    fontSize: 'clamp(2.5rem, 6vw, 4.5rem)',
                     fontFamily: 'var(--app-font-display)',
                     fontStyle: 'italic',
-                    filter: 'drop-shadow(0 0 20px rgba(229, 193, 88, 0.15))',
-                    color: 'var(--theme-text)'
+                    color: 'var(--theme-text)',
+                    textShadow: '0 0 40px rgba(0,0,0,0.5)'
                   }}
                 >
                   Constellation
@@ -1350,153 +1725,110 @@ export default function App() {
 
                 {useNaming && (
                   <span
-                    className="font-mono text-[9px] sm:text-[11px] tracking-[0.3em] uppercase px-4 py-1.5 mt-2 border select-none"
+                    className="font-mono text-[9px] sm:text-[10px] tracking-[0.3em] uppercase px-4 py-1 mt-4 border select-none backdrop-blur-sm"
                     style={{
                       borderColor: 'var(--theme-primary)',
                       color: 'var(--theme-primary)',
-                      backgroundColor: 'rgba(229, 193, 88, 0.08)',
-                      fontFamily: 'var(--app-font-body)',
-                      letterSpacing: '0.25em'
+                      backgroundColor: 'rgba(229, 193, 88, 0.05)',
+                      fontFamily: 'var(--app-font-display)',
+                      fontWeight: 400,
                     }}
                   >
-                    NAMING ASSISTANT
+                    CARTOGRAPHIE DES RELATIONS SÉMANTIQUES
                   </span>
                 )}
 
                 <p
-                  className="opacity-60 select-none tracking-[0.15em] max-w-lg leading-relaxed mt-2 app-subtitle"
-                  style={{ fontSize: '11px', fontFamily: 'var(--app-font-body)' }}
+                  className="opacity-60 select-none max-w-md leading-relaxed mt-5 app-subtitle"
+                  style={{ fontSize: '13px', fontFamily: 'var(--app-font-body)', letterSpacing: '0.02em', fontWeight: 300 }}
                 >
                   {t.subtitle}
                 </p>
-              </motion.div>
 
-              {/* Central Search Box */}
-              <motion.form
-                layoutId="search-form"
-                onSubmit={handleCustomJump}
-                className="w-full max-w-lg mt-4 sm:mt-6 pointer-events-auto relative z-10"
-              >
-                <div className="flex items-center relative group">
-                  <input
-                    type="text"
-                    className="w-full pl-12 pr-5 py-3 sm:py-4 rounded-none text-[13px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
-                    style={{
-                      background: 'var(--theme-card)',
-                      border: '1px solid var(--theme-primary)',
-                      color: 'var(--theme-text)',
-                      boxShadow: '0 0 30px rgba(245, 166, 35, 0.05)'
-                    }}
-                    placeholder={t.placeholderInit}
-                    value={inputWord}
-                    onChange={(e) => setInputWord(e.target.value)}
-                    maxLength={25}
-                    autoFocus
-                  />
-                  <svg
-                    className="absolute left-4 w-5 h-5 transition-colors pointer-events-none"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                    style={{ stroke: 'var(--theme-primary)' }}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
+                {/* Central Search Box */}
+                <motion.form
+                  layoutId="search-form"
+                  onSubmit={handleCustomJump}
+                  className="w-full max-w-2xl mt-8 pointer-events-auto relative flex flex-col sm:flex-row items-stretch gap-[1px] p-[1px] rounded-sm"
+                  style={{
+                    background: 'var(--theme-border)',
+                    boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
+                  }}
+                >
+                  <div className="flex-1 flex items-center relative group bg-[var(--theme-bg)] transition-colors hover:bg-[var(--theme-card)]">
+                    <input
+                      type="text"
+                      className="w-full pl-12 pr-4 py-4 bg-transparent text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.1em] tracking-[0.15em] font-mono"
+                      style={{ color: 'var(--theme-text)' }}
+                      placeholder={t.placeholderInit}
+                      value={inputWord}
+                      onChange={(e) => setInputWord(e.target.value)}
+                      maxLength={25}
+                      autoFocus
+                    />
+                    <svg
+                      className="absolute left-4 w-4 h-4 transition-colors pointer-events-none opacity-50"
+                      fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"
+                      style={{ stroke: 'var(--theme-text)' }}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+
+                  {useNaming && (
+                    <div className="flex-1 flex items-center relative group bg-[var(--theme-bg)] transition-colors hover:bg-[var(--theme-card)]">
+                      <input
+                        type="text"
+                        placeholder={t.placeholderSector}
+                        value={sector}
+                        onChange={(e) => setSector(e.target.value)}
+                        maxLength={50}
+                        className="w-full pl-12 pr-4 py-4 bg-transparent text-[12px] font-mono tracking-[0.1em] focus:outline-none transition-all duration-300 placeholder:opacity-50"
+                        style={{ color: 'var(--theme-text)' }}
+                      />
+                      <svg
+                        className="absolute left-4 w-4 h-4 transition-colors pointer-events-none opacity-50"
+                        fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"
+                        style={{ stroke: 'var(--theme-text)' }}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 .621-.504 1.125-1.125 1.125H4.875A1.125 1.125 0 0 1 3.75 18.4V14.15m16.5 0a9.003 9.003 0 0 0-16.5 0m16.5 0v-3.5a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 10.65v3.5m18 0h-2.25m-13.5 0H3m3 0V9.375c0-.621.504-1.125 1.125-1.125h9.75c.621 0 1.125.504 1.125 1.125v4.775" />
+                      </svg>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-6 sm:px-8 py-3 sm:py-4 text-[11px] sm:text-[12px] font-mono tracking-widest uppercase transition-all duration-200 shrink-0 font-bold"
+                    className="px-8 py-4 text-[11px] font-mono tracking-widest uppercase transition-all duration-300 shrink-0 font-bold hover:brightness-110"
                     style={{
-                      borderTop: '1px solid var(--theme-primary)',
-                      borderBottom: '1px solid var(--theme-primary)',
-                      borderRight: '1px solid var(--theme-primary)',
-                      borderLeft: 'none',
                       background: 'var(--theme-primary)',
                       color: 'var(--theme-bg)',
+                      boxShadow: '0 0 20px rgba(229, 193, 88, 0.15)'
                     }}
                   >
                     {loading ? t.btnLoading : t.btnExplore}
                   </button>
+                </motion.form>
+
+                {/* Subtle Switchers on Intro Screen */}
+                <div className="flex gap-4 mt-8 opacity-40 hover:opacity-100 transition-opacity duration-300">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : prev === 'POETIC_LIGHT' ? 'RAW_MINIMAL' : 'AMBER')}
+                    className="text-[9px] font-mono tracking-[0.2em] uppercase hover:text-[var(--theme-primary)] transition-colors duration-150 app-theme-button"
+                  >
+                    {activeTheme === 'AMBER' ? t.themeAmber : activeTheme === 'POETIC_LIGHT' ? t.themeLight : t.themeRawMinimal}
+                  </button>
+                  <span className="opacity-30">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
+                    className="text-[9px] font-mono tracking-[0.2em] uppercase hover:text-[var(--theme-primary)] transition-colors duration-150"
+                  >
+                    {lang === 'fr' ? 'EN' : 'FR'}
+                  </button>
                 </div>
-              </motion.form>
-
-              {/* Suggestions / Loading state */}
-              <div className="h-16 flex items-center justify-center">
-                <AnimatePresence mode="wait">
-                  {loading ? (
-                    <motion.div
-                      key="loading-msg"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="flex flex-col items-center gap-2"
-                    >
-                      <div className="flex gap-1.5 justify-center items-center">
-                        <span className="w-1.5 h-1.5 bg-[var(--theme-primary)] animate-pulse" />
-                        <span className="w-1.5 h-1.5 bg-[var(--theme-primary)] animate-pulse delay-75" />
-                        <span className="w-1.5 h-1.5 bg-[var(--theme-primary)] animate-pulse delay-150" />
-                        <p
-                          className="text-[10px] tracking-[0.15em] text-[var(--theme-primary)] ml-2"
-                          style={{ fontFamily: 'var(--app-font-body)' }}
-                        >
-                          {t.loadingTitle}
-                        </p>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="suggestions"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 0.7 }}
-                      className="flex overflow-x-auto sm:flex-wrap gap-2.5 justify-start sm:justify-center w-full max-w-full sm:max-w-md pb-2 px-4 sm:px-0"
-                      style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
-                    >
-                      {t.suggestions.map((word) => (
-                        <button
-                          key={word}
-                          onClick={() => {
-                            setInputWord(word);
-                            handleNavigateWord(word, true);
-                          }}
-                          className="px-3 py-1 text-[9px] font-mono tracking-[0.15em] border border-dashed border-[var(--theme-primary)] border-opacity-30 hover:border-solid hover:border-opacity-100 text-[var(--theme-text)] opacity-60 hover:opacity-100 hover:text-[var(--theme-primary)] transition-all duration-150 rounded-none cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center shrink-0"
-                          style={{ background: 'transparent' }}
-                        >
-                          {word}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* Subtle Switchers on Intro Screen */}
-              <div className="flex gap-3 mt-4">
-                <button
-                  type="button"
-                  onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : prev === 'POETIC_LIGHT' ? 'RAW_MINIMAL' : 'AMBER')}
-                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 app-theme-button min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
-                  style={{
-                    border: '1px solid var(--theme-border)',
-                    background: 'var(--theme-card)',
-                    color: 'var(--theme-text)',
-                  }}
-                >
-                  {activeTheme === 'AMBER' ? t.themeAmber : activeTheme === 'POETIC_LIGHT' ? t.themeLight : t.themeRawMinimal}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
-                  className="px-3 py-1.5 text-[9px] font-mono tracking-[0.15em] hover:opacity-100 transition-all duration-150 rounded-none cursor-none opacity-50 hover:opacity-80 min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
-                  style={{
-                    border: '1px solid var(--theme-border)',
-                    background: 'var(--theme-card)',
-                    color: 'var(--theme-text)',
-                  }}
-                >
-                  {lang === 'fr' ? 'EN' : 'FR'}
-                </button>
-              </div>
+              </motion.div>
             </div>
           </motion.div>
         )}
@@ -1504,10 +1836,11 @@ export default function App() {
 
       {/* Header (visible when initialized) */}
       {initialized && (
-        <header className="w-full max-w-7xl mx-auto px-3 sm:px-8 pt-[max(env(safe-area-inset-top),0.8rem)] sm:pt-[max(env(safe-area-inset-top),2rem)] pb-2 sm:pb-5 flex flex-row justify-between items-center gap-3 z-40 pointer-events-none">
+        <header className="w-full px-3 sm:px-8 pt-[max(env(safe-area-inset-top),0.8rem)] sm:pt-[max(env(safe-area-inset-top),2rem)] pb-2 sm:pb-5 flex flex-row justify-between items-center gap-3 z-40 pointer-events-none">
           <div className="pointer-events-auto flex flex-col gap-0 shrink-0">
             <h1
-              className="font-bold tracking-[-0.02em] leading-tight select-none app-title"
+              className="font-bold tracking-[-0.02em] leading-tight select-none app-title cursor-pointer transition-opacity hover:opacity-75 active:scale-[0.98]"
+              onClick={handleBackToHome}
               style={{
                 fontFamily: 'var(--app-font-display)',
                 fontStyle: 'italic',
@@ -1569,115 +1902,127 @@ export default function App() {
               </div>
             </motion.form>
 
-            {/* Sector Input Container (Naming mode only) */}
-            {useNaming && (
-              <>
-                <div className="hidden md:block w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
-                <div className="relative flex items-center w-[110px] sm:w-auto min-w-0 sm:min-w-[150px]">
-                  <input
-                    type="text"
-                    className="w-full pl-2 pr-2 py-1.5 sm:py-2 bg-transparent text-[11px] sm:text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.05em] tracking-[0.1em] font-mono border-b border-[var(--theme-border)] min-h-[36px] sm:min-h-[unset]"
+            {/* Desktop Collapsible Control Deck Content */}
+            <motion.div
+              initial={false}
+              animate={{
+                width: menuOpen ? 'auto' : 0,
+                opacity: menuOpen ? 1 : 0,
+              }}
+              transition={{ duration: 0.3, ease: [0.25, 1, 0.5, 1] }}
+              className="hidden md:flex items-center overflow-hidden shrink-0 h-full whitespace-nowrap"
+            >
+              <div className="flex items-center gap-3 md:gap-4 px-1.5">
+                {/* Sector Input (Naming mode only) */}
+                {useNaming && (
+                  <>
+                    <div className="w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
+                    <div className="relative flex items-center w-[110px] sm:w-auto min-w-0 sm:min-w-[150px]">
+                      <input
+                        type="text"
+                        className="w-full pl-2 pr-2 py-1.5 sm:py-2 bg-transparent text-[11px] sm:text-[12px] focus:outline-none transition-all duration-300 placeholder:tracking-[0.05em] tracking-[0.1em] font-mono border-b border-[var(--theme-border)] min-h-[36px] sm:min-h-[unset]"
+                        style={{
+                          borderColor: sector ? 'var(--theme-primary)' : 'var(--theme-border)',
+                          color: 'var(--theme-text)',
+                        }}
+                        placeholder="Secteur (ex: IA...)"
+                        value={sector}
+                        onChange={(e) => setSector(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleRegenerateSector();
+                          }
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Separator before buttons */}
+                <div className="w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
+
+                {/* Tool buttons Row */}
+                <div className="flex items-center gap-2 flex-nowrap shrink-0">
+                  {/* Toggle Labels */}
+                  <button
+                    type="button"
+                    onClick={() => setLabelsOpaque(!labelsOpaque)}
+                    className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
                     style={{
-                      borderColor: sector ? 'var(--theme-primary)' : 'var(--theme-border)',
+                      borderColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
+                      background: labelsOpaque ? 'rgba(229, 193, 88, 0.08)' : 'transparent',
+                      color: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-text)',
+                      opacity: labelsOpaque ? 1.0 : 0.6,
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                    onMouseLeave={e => { if (!labelsOpaque) e.currentTarget.style.opacity = '0.6'; }}
+                  >
+                    {t.labelsControl}: {labelsOpaque ? t.labelsVisible : t.labelsAuto}
+                  </button>
+
+                  {/* Toggle Satellites / Focus (if useNaming) */}
+                  {useNaming && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextVal = !showSatellites;
+                        setShowSatellites(nextVal);
+                        setUserPreferredShowSatellites(nextVal);
+                        if (nextVal && (!satelliteBrandables[centerWord.toLowerCase()] || satelliteBrandables[centerWord.toLowerCase()].length === 0)) {
+                          handleGenerateSatellites(centerWord);
+                        }
+                      }}
+                      className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                      style={{
+                        borderColor: showSatellites ? 'var(--theme-primary)' : 'var(--theme-border)',
+                        background: showSatellites ? 'rgba(229, 193, 88, 0.08)' : 'transparent',
+                        color: showSatellites ? 'var(--theme-primary)' : 'var(--theme-text)',
+                        opacity: showSatellites ? 1.0 : 0.6,
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                      onMouseLeave={e => { if (!showSatellites) e.currentTarget.style.opacity = '0.6'; }}
+                    >
+                      Focus: {showSatellites ? 'Sats' : 'Sem'}
+                    </button>
+                  )}
+
+                  {/* Theme Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : prev === 'POETIC_LIGHT' ? 'RAW_MINIMAL' : 'AMBER')}
+                    className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none app-theme-button min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                    style={{
+                      borderColor: 'var(--theme-border)',
+                      background: 'transparent',
                       color: 'var(--theme-text)',
+                      opacity: 0.6,
                     }}
-                    placeholder="Secteur (ex: IA...)"
-                    value={sector}
-                    onChange={(e) => setSector(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleRegenerateSector();
-                      }
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                  >
+                    {activeTheme === 'AMBER' ? t.themeAmber : activeTheme === 'POETIC_LIGHT' ? t.themeLight : t.themeRawMinimal}
+                  </button>
+
+                  {/* Language Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
+                    className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
+                    style={{
+                      borderColor: 'var(--theme-border)',
+                      background: 'transparent',
+                      color: 'var(--theme-text)',
+                      opacity: 0.6,
                     }}
-                  />
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                  >
+                    {lang === 'fr' ? 'EN' : 'FR'}
+                  </button>
                 </div>
-              </>
-            )}
-
-            {/* Desktop Separator */}
-            <div className="hidden md:block w-[1px] h-6 bg-[var(--theme-border)] opacity-30" />
-
-            {/* Tool buttons (Desktop only) */}
-            <div className="hidden md:flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap max-w-full shrink-0" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
-              {/* Toggle Labels */}
-              <button
-                type="button"
-                onClick={() => setLabelsOpaque(!labelsOpaque)}
-                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
-                style={{
-                  borderColor: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-border)',
-                  background: labelsOpaque ? 'rgba(229, 193, 88, 0.08)' : 'transparent',
-                  color: labelsOpaque ? 'var(--theme-primary)' : 'var(--theme-text)',
-                  opacity: labelsOpaque ? 1.0 : 0.6,
-                }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
-                onMouseLeave={e => { if (!labelsOpaque) e.currentTarget.style.opacity = '0.6'; }}
-              >
-                {t.labelsControl}: {labelsOpaque ? t.labelsVisible : t.labelsAuto}
-              </button>
-
-              {/* Toggle Satellites / Focus (if useNaming) */}
-              {useNaming && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextVal = !showSatellites;
-                    setShowSatellites(nextVal);
-                    setUserPreferredShowSatellites(nextVal);
-                    if (nextVal && (!satelliteBrandables[centerWord.toLowerCase()] || satelliteBrandables[centerWord.toLowerCase()].length === 0)) {
-                      handleGenerateSatellites(centerWord);
-                    }
-                  }}
-                  className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
-                  style={{
-                    borderColor: showSatellites ? 'var(--theme-primary)' : 'var(--theme-border)',
-                    background: showSatellites ? 'rgba(229, 193, 88, 0.08)' : 'transparent',
-                    color: showSatellites ? 'var(--theme-primary)' : 'var(--theme-text)',
-                    opacity: showSatellites ? 1.0 : 0.6,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
-                  onMouseLeave={e => { if (!showSatellites) e.currentTarget.style.opacity = '0.6'; }}
-                >
-                  Focus: {showSatellites ? 'Sats' : 'Sem'}
-                </button>
-              )}
-
-              {/* Theme Toggle */}
-              <button
-                type="button"
-                onClick={() => setActiveTheme(prev => prev === 'AMBER' ? 'POETIC_LIGHT' : prev === 'POETIC_LIGHT' ? 'RAW_MINIMAL' : 'AMBER')}
-                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none app-theme-button min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
-                style={{
-                  borderColor: 'var(--theme-border)',
-                  background: 'transparent',
-                  color: 'var(--theme-text)',
-                  opacity: 0.6,
-                }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
-              >
-                {activeTheme === 'AMBER' ? t.themeAmber : activeTheme === 'POETIC_LIGHT' ? t.themeLight : t.themeRawMinimal}
-              </button>
-
-              {/* Language Toggle */}
-              <button
-                type="button"
-                onClick={() => setLang(prev => prev === 'fr' ? 'en' : 'fr')}
-                className="px-2.5 py-1.5 text-[9px] font-mono tracking-[0.15em] uppercase transition-all duration-150 border cursor-none min-h-[44px] sm:min-h-[unset] flex items-center justify-center"
-                style={{
-                  borderColor: 'var(--theme-border)',
-                  background: 'transparent',
-                  color: 'var(--theme-text)',
-                  opacity: 0.6,
-                }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '1.0'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
-              >
-                {lang === 'fr' ? 'EN' : 'FR'}
-              </button>
-            </div>
-
+              </div>
+            </motion.div>
             {/* Delete Active Node - Optimized for Mobile */}
             <button
               type="button"
@@ -1700,16 +2045,16 @@ export default function App() {
               </span>
             </button>
 
-            {/* Mobile Menu Toggle */}
+            {/* Menu Toggle (Visible on both Mobile and Desktop now) */}
             <button
               type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden px-1.5 py-1 text-[9px] border border-[var(--theme-border)] cursor-none min-h-[36px] flex items-center justify-center shrink-0 text-[var(--theme-text)] bg-transparent"
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="px-1.5 py-1 text-[9px] border border-[var(--theme-border)] cursor-none min-h-[36px] flex items-center justify-center shrink-0 text-[var(--theme-text)] bg-transparent"
               style={{
-                borderColor: mobileMenuOpen ? 'var(--theme-primary)' : 'var(--theme-border)',
+                borderColor: menuOpen ? 'var(--theme-primary)' : 'var(--theme-border)',
               }}
             >
-              {mobileMenuOpen ? (
+              {menuOpen ? (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1720,9 +2065,9 @@ export default function App() {
               )}
             </button>
 
-            {/* Mobile Dropdown Overlay */}
+            {/* Mobile Dropdown Overlay (Still limited to md:hidden) */}
             <AnimatePresence>
-              {mobileMenuOpen && (
+              {menuOpen && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95, y: -15, filter: 'blur(4px)' }}
                   animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
@@ -1853,11 +2198,16 @@ export default function App() {
               {history.map((word, i) => (
                 <div key={`${i}-${word}`} className="flex items-center gap-1 shrink-0">
                   <span
-                    className="text-[10px] sm:text-[11px] tracking-[0.12em] whitespace-nowrap px-1.5 py-0.5 transition-all duration-200 font-bold cursor-pointer"
-                    style={word.toLowerCase() === centerWord.toLowerCase()
-                      ? { color: 'var(--theme-bg)', background: 'var(--theme-primary)', border: '1px solid var(--theme-primary)', boxShadow: '0 0 10px rgba(245,166,35,0.3)' }
-                      : { color: 'var(--theme-text)', opacity: 0.5, border: '1px solid transparent' }
-                    }
+                    className="text-[10px] sm:text-[11px] whitespace-nowrap px-1.5 py-0.5 transition-all duration-200 cursor-pointer"
+                    style={{
+                      fontFamily: 'var(--app-font-display)',
+                      textTransform: 'uppercase',
+                      fontWeight: 400,
+                      letterSpacing: '0.12em',
+                      ...(word.toLowerCase() === centerWord.toLowerCase()
+                        ? { color: 'var(--theme-bg)', background: 'var(--theme-primary)', border: '1px solid var(--theme-primary)', boxShadow: '0 0 10px rgba(245,166,35,0.3)' }
+                        : { color: 'var(--theme-text)', opacity: 0.5, border: '1px solid transparent' })
+                    }}
                     onClick={() => handleNavigateWord(word)}
                   >
                     {word}
@@ -1886,16 +2236,16 @@ export default function App() {
       {/* Floating Pinned Satellites Deck (Tucked in Upper Right Corner) */}
       {initialized && (
         <div className="fixed top-[min(130px,20vh)] right-3 sm:right-8 z-[45] flex flex-col items-end gap-2.5 pointer-events-none max-h-[60vh] overflow-y-auto no-scrollbar"
-             style={{ scrollbarWidth: 'none' }}>
+          style={{ scrollbarWidth: 'none' }}>
           <AnimatePresence mode="popLayout">
             {pinnedSatellites.map((sat, idx) => (
               <motion.div
                 key={sat.name}
                 initial={{ opacity: 0, x: 60, scale: 0.8, filter: 'blur(8px)' }}
-                animate={{ 
-                  opacity: 1, 
-                  x: 0, 
-                  scale: 1, 
+                animate={{
+                  opacity: 1,
+                  x: 0,
+                  scale: 1,
                   filter: 'blur(0px)',
                   y: [0, -3, 0], // Subtle float oscillation
                   transition: {
@@ -1903,15 +2253,17 @@ export default function App() {
                     default: { duration: 0.5, ease: [0.23, 1, 0.32, 1] }
                   }
                 }}
-                exit={{ 
-                  opacity: 0, 
-                  scale: 0.7, 
-                  x: 30, 
+                exit={{
+                  opacity: 0,
+                  scale: 0.7,
+                  x: 30,
                   filter: 'blur(4px)',
-                  transition: { duration: 0.3 } 
+                  transition: { duration: 0.3 }
                 }}
                 whileHover={{ scale: 1.05, x: -5 }}
                 onClick={() => handlePinSatellite(sat)}
+                onMouseEnter={() => setSelectedSatellite(sat)}
+                onMouseLeave={() => setSelectedSatellite(null)}
                 className="pointer-events-auto cursor-pointer backdrop-blur-xl flex flex-row items-center justify-end group relative"
                 style={{
                   backgroundColor: 'var(--theme-card)',
@@ -1925,19 +2277,19 @@ export default function App() {
               >
                 {/* Accent vertical discrete link */}
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-1/2 bg-[var(--theme-primary)] opacity-50 rounded-full group-hover:h-[80%] transition-all duration-300" />
-                
+
                 <span className="select-none mr-2" style={{
                   fontFamily: 'var(--app-font-display)',
                   fontStyle: 'italic',
                   fontSize: '13px',
-                  fontWeight: 500,
+                  fontWeight: 700, // Saved items get Bold Italic prominence
                   letterSpacing: '0.05em',
                   color: 'var(--theme-primary)',
-                  textTransform: 'lowercase'
+                  textTransform: 'capitalize' // Casse normale (Majuscule au debut)
                 }}>
                   {sat.name}
                 </span>
-                
+
                 <div className="w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-[#ef4444]">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
@@ -1971,7 +2323,8 @@ export default function App() {
             style={{ x: cursorX, y: cursorY }}
             variants={{
               default: { width: 12, height: 12, border: "1px solid #fff", backgroundColor: "transparent", borderRadius: "0%", opacity: 0.8 },
-              pointer: { width: 28, height: 28, border: "1px solid var(--theme-primary)", backgroundColor: "var(--theme-primary)", borderRadius: "0%", opacity: 0.9 },
+              // Carré creux uniforme qui ne devient PAS plein, pour une esthétique cohérente
+              pointer: { width: 24, height: 24, border: "1px solid var(--theme-primary)", backgroundColor: "transparent", borderRadius: "0%", opacity: 0.9 },
               text: { width: 1, height: 22, backgroundColor: "#fff", borderRadius: "0%", opacity: 1 },
             }}
             animate={cursorType}

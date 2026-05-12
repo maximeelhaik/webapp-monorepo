@@ -123,31 +123,31 @@ export const THEMES: Record<string, ThemeConfig> = {
   AMBER: {
     id: 'AMBER',
     colors: {
-      background: '#000000',
-      backgroundScroll: '#0f0f0f',
-      text: '#f2f2f2',
-      textScroll: '#f2f2f2',
-      primary: '#89cdf7ff',
-      secondary: '#7199b0ff',
-      card: 'rgba(229, 193, 88, 0.08)',
-      input: '#0f0f0f',
-      border: '#7199b0ff',
-      placeholder: '#7199b0ff',
-      caret: '#7199b0ff',
+      background: '#02040A', // Ultra-deep midnight abyss
+      backgroundScroll: '#060914',
+      text: '#F1F5F9',       // Bright starlight text
+      textScroll: '#F1F5F9',
+      primary: '#7DD3FC',    // Glowing ethereal sky blue
+      secondary: '#475569',  // Muted slate-grey nebula
+      card: 'rgba(15, 23, 42, 0.5)', // Premium nocturnal glass
+      input: '#060914',
+      border: 'rgba(125, 211, 252, 0.15)', // Subtly luminous border
+      placeholder: '#64748B',
+      caret: '#FBBF24',      // Vivid amber core
     },
     typography: {
-      display: '"IBM Plex Mono", monospace',
-      body: '"Space Grotesk", sans-serif',
+      display: '"Space Mono", monospace', // Premium aesthetic alignment
+      body: '"Plus Jakarta Sans", sans-serif',
       inputSize: 'clamp(2rem, 5vw, 4rem)',
       resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
       headingTransform: 'uppercase',
-      headingTracking: '0.15em',
+      headingTracking: '0.3em',
     },
     ui: {
       borderRadius: '0px',
       borderWidth: '1px',
-      boxShadow: 'none',
-      buttonShadow: 'none',
+      boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(56, 189, 248, 0.03)', // Luminescent depth
+      buttonShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
     }
   },
   RAW_MINIMAL: {
@@ -158,12 +158,42 @@ export const THEMES: Record<string, ThemeConfig> = {
       text: '#ffffff',
       textScroll: '#ffffff',
       primary: '#ffffff',
-      secondary: '#737373',
-      card: 'rgba(255, 255, 255, 0.03)',
+      secondary: '#666666', // Slightly cleaner semantic secondary
+      card: 'rgba(255, 255, 255, 0.07)', // Ultra-thin premium frost
       input: '#000000',
-      border: '#262626',
+      border: 'rgba(255, 255, 255, 0.1)', // Crisp architectural white border
       placeholder: '#525252',
       caret: '#ffffff',
+    },
+    typography: {
+      display: '"Space Mono", monospace',
+      body: '"Plus Jakarta Sans", sans-serif',
+      inputSize: 'clamp(2rem, 5vw, 4rem)',
+      resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
+      headingTransform: 'uppercase',
+      headingTracking: '0.3em', // Standardized luxury spacing
+    },
+    ui: {
+      borderRadius: '0px',
+      borderWidth: '1px',
+      boxShadow: 'none', // Strictly raw
+      buttonShadow: 'none', // Strictly raw
+    }
+  },
+  POETIC_LIGHT: {
+    id: 'POETIC_LIGHT',
+    colors: {
+      background: '#F6F6F8', // Premium lunar/magnesium white
+      backgroundScroll: '#ECECED',
+      text: '#0E0E10',       // Deep carbon for rich contrast
+      textScroll: '#0E0E10',
+      primary: '#000000',    // Solid black primary anchor
+      secondary: '#6B6B76',  // Refined tertiary taupe-grey
+      card: 'rgba(255, 255, 255, 0.7)', // Enhanced glassmorphism base
+      input: 'rgba(255, 255, 255, 0.9)',
+      border: 'rgba(14, 14, 16, 0.08)', // Ultra-thin translucent borders
+      placeholder: '#A1A1AA',
+      caret: '#000000',
     },
     typography: {
       display: '"DM Mono", monospace',
@@ -171,43 +201,13 @@ export const THEMES: Record<string, ThemeConfig> = {
       inputSize: 'clamp(2rem, 5vw, 4rem)',
       resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
       headingTransform: 'uppercase',
-      headingTracking: '0.25em',
+      headingTracking: '0.3em', // High-end letter spacing
     },
     ui: {
       borderRadius: '0px',
       borderWidth: '1px',
-      boxShadow: 'none',
-      buttonShadow: 'none',
-    }
-  },
-  POETIC_LIGHT: {
-    id: 'POETIC_LIGHT',
-    colors: {
-      background: '#b7e4ffff',
-      backgroundScroll: '#70c0f2ff',
-      text: '#0f0f0f',
-      textScroll: '#0f0f0f',
-      primary: '#1a1616ff',
-      secondary: '#545353ff',
-      card: 'rgba(140, 109, 49, 0.08)',
-      input: '#c8c2b3',
-      border: '#26526eff',
-      placeholder: '#26526eff',
-      caret: '#26526eff',
-    },
-    typography: {
-      display: '"IBM Plex Mono", monospace',
-      body: '"Space Grotesk", sans-serif',
-      inputSize: 'clamp(2rem, 5vw, 4rem)',
-      resultSize: 'clamp(1.5rem, 3vw, 2.5rem)',
-      headingTransform: 'uppercase',
-      headingTracking: '0.15em',
-    },
-    ui: {
-      borderRadius: '0px',
-      borderWidth: '1px',
-      boxShadow: 'none',
-      buttonShadow: 'none',
+      boxShadow: '0 20px 40px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.02)', // Antigravity weightless effect
+      buttonShadow: '0 4px 12px rgba(0,0,0,0.04)',
     }
   }
 };

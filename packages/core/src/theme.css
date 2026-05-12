@@ -70,12 +70,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: color-mix(in srgb, var(--theme-text, #ffffff) 15%, transparent);
     border-radius: 0;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: color-mix(in srgb, var(--theme-text, #ffffff) 30%, transparent);
   }
 }
 
@@ -159,7 +159,7 @@
   inset: 0;
   pointer-events: none;
   z-index: 1;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--theme-text, #ffffff) 7%, transparent) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -176,7 +176,8 @@
   height: 28px;
   pointer-events: none;
   z-index: 102;
-  color: rgba(255, 255, 255, 0.28);
+  color: var(--theme-text, #ffffff);
+  opacity: 0.28;
   animation: crosshair-pulse 4s ease-in-out infinite;
 }
 
@@ -208,7 +209,8 @@
 .crosshair-br::after {
   font-family: var(--app-font-display, monospace);
   font-size: 7px;
-  color: rgba(255, 255, 255, 0.22);
+  color: var(--theme-text, #ffffff);
+  opacity: 0.22;
   letter-spacing: 0.05em;
   white-space: nowrap;
   position: absolute;

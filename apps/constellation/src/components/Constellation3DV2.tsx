@@ -50,6 +50,8 @@ interface ConstellationProps {
     onWordDoubleClick?: (word: string) => void;
     pinnedSatellites?: { name: string; desc: string }[];
     onPinSatellite?: (sat: { name: string; desc: string }) => void;
+    selectedSatellite?: { name: string; desc: string } | null;
+    setSelectedSatellite?: (sat: { name: string; desc: string } | null) => void;
 }
 
 // --- Constantes visuelles ---
@@ -57,6 +59,33 @@ const ACTIVE_RADIUS = 0.85;
 const NODE_RADIUS = 0.4;
 const TARGET_DIST = 26;
 const MIN_DIST = 18.5;
+
+// Cache pour la texture de glow partagée pour éviter de recréer le canvas par millier
+let _glowTextureCache: THREE.CanvasTexture | null = null;
+const getRadialGlowTexture = () => {
+    if (typeof window === 'undefined') return null;
+    if (_glowTextureCache) return _glowTextureCache;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Création d'un gradient radial hyper-doux copiant le blur(4px) CSS
+    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.75)');
+    gradient.addColorStop(0.55, 'rgba(255, 255, 255, 0.25)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 64, 64);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    _glowTextureCache = texture;
+    return texture;
+};
 
 const getDynamicZoomSettings = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -118,6 +147,17 @@ const Node = React.memo(({
     const currentPos = useRef(new THREE.Vector3().copy(data.startPos));
     const [hovered, setHovered] = useState(false);
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    
+    // Restreindre les interactions des satellites UNIQUEMENT si on est en mode Satellite Focus
+    const canInteract = data.isSatellite ? !!showSatellites : true;
+
+    // Si l'interaction est coupée pendant qu'on survolait, réinitialiser proprement l'état local et global
+    useEffect(() => {
+        if (!canInteract && hovered) {
+            setHovered(false);
+            if (setSelectedSatellite) setSelectedSatellite(null);
+        }
+    }, [canInteract, hovered, setSelectedSatellite]);
 
     useEffect(() => {
         if (hovered) {
@@ -136,9 +176,8 @@ const Node = React.memo(({
 
     useEffect(() => {
         return () => {
-            if (clickTimeoutRef.current) {
-                clearTimeout(clickTimeoutRef.current);
-            }
+            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         };
     }, []);
 
@@ -150,8 +189,12 @@ const Node = React.memo(({
     const orbitRef = useRef<any>(null);
     const orbitMatRef = useRef<THREE.LineBasicMaterial>(null);
     const labelRef = useRef<any>(null);
+    
+    // Texture de glow premium partagée
+    const glowTexture = useMemo(() => getRadialGlowTexture(), []);
 
     const clickTimeoutRef = useRef<any>(null);
+    const hoverTimeoutRef = useRef<any>(null);
 
     // Géométrie d'ellipse elliptique 2D de base pour un look "atomes et électrons" premium
     const ellipseGeometry = useMemo(() => {
@@ -245,27 +288,34 @@ const Node = React.memo(({
 
         // Mise à jour directe des matériaux pour la performance
         if (circleMatRef.current) {
-            circleMatRef.current.opacity = data.isSatellite
-                ? (isSelectedSatellite ? 0.45 : (hovered ? 0.35 : 0.15)) * (showSatellites ? 1.0 : 0.1)
-                : nodeOpacity;
+            // Le circleMatRef gère maintenant le coeur brillant du satellite OU la forme diamant du centre principal
+            circleMatRef.current.opacity = (data.isSatellite
+                ? (isSelectedSatellite || isPinned ? 1.0 : (hovered ? 0.95 : 0.85)) 
+                : nodeOpacity) * (data.isSatellite ? (showSatellites ? 1.0 : 0.1) : 1.0);
+            
             const baseColorStr = isActive
-                ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : theme.colors.primary)
+                ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : theme.colors.primary)
                 : (data.isSatellite 
-                    ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') 
+                    ? '#ffffff' // Toujours un pur point lumineux pour les satellites (très premium)
                     : (hovered ? '#ffffff' : theme.colors.secondary));
             circleMatRef.current.color.copy(new THREE.Color(baseColorStr.slice(0, 7)));
         }
         if (glowMatRef.current) {
-            const glowBase = isActive ? 0.18 : (hovered ? 0.08 : 0.03);
+            // Ajustement précis pour un halo discret mais perceptible
+            const glowBase = isActive 
+                ? 0.28 // Centre rayonnant doux
+                : (data.isSatellite 
+                    ? (isSelectedSatellite || isPinned ? 0.30 : (hovered ? 0.22 : 0.12)) 
+                    : (hovered ? 0.10 : 0.03));
             glowMatRef.current.opacity = glowBase * nodeOpacity;
             const bubbleColorStr = isActive
-                ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : theme.colors.primary)
-                : (data.isSatellite ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff');
+                ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : theme.colors.primary)
+                : (data.isSatellite ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff');
             glowMatRef.current.color.copy(new THREE.Color(bubbleColorStr.slice(0, 7)));
         }
-        if (ringMatRef.current) ringMatRef.current.opacity = 0.5 * nodeOpacity;
-        if (cross1MatRef.current) cross1MatRef.current.opacity = 0.3 * nodeOpacity;
-        if (cross2MatRef.current) cross2MatRef.current.opacity = 0.3 * nodeOpacity;
+        if (ringMatRef.current) ringMatRef.current.opacity = 0.35 * nodeOpacity;
+        if (cross1MatRef.current) cross1MatRef.current.opacity = 0.2 * nodeOpacity;
+        if (cross2MatRef.current) cross2MatRef.current.opacity = 0.2 * nodeOpacity;
 
         // Mise à jour de la trajectoire orbitale elliptique RIGIDE et INSTANTANÉE (mathématiquement verrouillée)
         if (orbitRef.current && data.parentId) {
@@ -313,70 +363,71 @@ const Node = React.memo(({
     const currentHitActive = isMobile ? 3.8 : 2.2; 
     const currentHitNode = isMobile ? 2.8 : 1.4;
     const hitR = isActive ? currentHitActive : currentHitNode;
-    const glowR = nodeR * 2.4;
+    
+    // Multiplié par 6.0 pour créer une diffusion de lumière vraiment volumique et premium (comme l'intro)
+    const glowR = nodeR * 6.0;
 
     const formattedLabel = data.label.charAt(0).toUpperCase() + data.label.slice(1).toLowerCase();
 
+    // Handlers unifiés from scratch : Zone unique via HTML Flex container
+    const handleInteractiveEnter = (e?: React.PointerEvent) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        setHovered(true);
+        if (data.isSatellite && setSelectedSatellite) {
+            setSelectedSatellite({ name: data.label, desc: data.description || '' });
+        }
+    };
+
+    const handleInteractiveLeave = (e?: React.PointerEvent) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        setHovered(false);
+        if (data.isSatellite && setSelectedSatellite) {
+            setSelectedSatellite(null);
+        }
+    };
+
+    const handleInteractiveClick = (e?: React.MouseEvent) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (clickTimeoutRef.current) {
+            clearTimeout(clickTimeoutRef.current);
+        }
+        
+        clickTimeoutRef.current = setTimeout(() => {
+            if (data.isSatellite) {
+                if (onPinSatellite) {
+                    onPinSatellite({ name: data.label, desc: data.description || '' });
+                }
+            } else {
+                onClick(data.id); 
+            }
+            clickTimeoutRef.current = null;
+        }, 250);
+    };
+
+    const handleInteractiveDoubleClick = (e?: React.MouseEvent) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (clickTimeoutRef.current) {
+            clearTimeout(clickTimeoutRef.current);
+            clickTimeoutRef.current = null;
+        }
+        if (!data.isSatellite && onDoubleClick) {
+            onDoubleClick(data.id);
+        }
+    };
+
     return (
         <group ref={groupRef}>
-            <mesh
-                onPointerEnter={(e) => { 
-                    e.stopPropagation(); 
-                    setHovered(true); 
-                    if (data.isSatellite && setSelectedSatellite) {
-                        setSelectedSatellite({ name: data.label, desc: data.description || '' });
-                    }
-                }}
-                onPointerLeave={(e) => { 
-                    e.stopPropagation(); 
-                    setHovered(false); 
-                    if (data.isSatellite && setSelectedSatellite) {
-                        setSelectedSatellite(null);
-                    }
-                }}
-                onClick={(e) => { 
-                    e.stopPropagation(); 
-                    // Nettoyer le timer s'il y en a déjà un (cas du deuxième clic arrivant vite)
-                    if (clickTimeoutRef.current) {
-                        clearTimeout(clickTimeoutRef.current);
-                    }
-                    
-                    // Retarder l'exécution du clic simple pour laisser le temps au double-clic de se manifester
-                    clickTimeoutRef.current = setTimeout(() => {
-                        if (data.isSatellite) {
-                            if (onPinSatellite) {
-                                onPinSatellite({ name: data.label, desc: data.description || '' });
-                            }
-                        } else {
-                            onClick(data.id); 
-                        }
-                        clickTimeoutRef.current = null;
-                    }, 250); 
-                }}
-                onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    // Tuer le chrono du clic simple pour empêcher tout déplacement de caméra
-                    if (clickTimeoutRef.current) {
-                        clearTimeout(clickTimeoutRef.current);
-                        clickTimeoutRef.current = null;
-                    }
-                    
-                    if (!data.isSatellite && onDoubleClick) {
-                        onDoubleClick(data.id);
-                    }
-                }}
-            >
-                <circleGeometry args={[hitR, 32]} />
-                <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
-            </mesh>
+            {/* L'interaction a été migrée à 100% vers le layer HTML Flex unifié pour une logique simple, continue et robuste */}
 
+            {/* Nouveau Halo Lumineux Ultra-Premium texturé (copie le blur CSS) */}
             <mesh raycast={() => null} renderOrder={9}>
-                <circleGeometry args={[glowR, 32]} />
+                <planeGeometry args={[glowR * 2, glowR * 2]} />
                 <meshBasicMaterial
                     ref={glowMatRef}
-                    color={(isActive ? theme.colors.primary : (data.isSatellite ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff')).slice(0, 7)}
+                    map={glowTexture || undefined}
+                    color={(isActive ? theme.colors.primary : (data.isSatellite ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff')).slice(0, 7)}
                     transparent
-                    opacity={(isActive ? 0.18 : (hovered ? 0.08 : 0.03)) * initialNodeOpacity}
+                    opacity={(isActive ? 0.35 : (data.isSatellite ? 0.20 : (hovered ? 0.15 : 0.05))) * initialNodeOpacity}
                     blending={THREE.AdditiveBlending}
                     depthWrite={false}
                     side={THREE.DoubleSide}
@@ -395,32 +446,21 @@ const Node = React.memo(({
                         >
                             <lineBasicMaterial
                                 ref={orbitMatRef}
-                                color={(theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24').slice(0, 7)}
+                                color={(theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24').slice(0, 7)}
                                 transparent
                                 opacity={0}
                                 depthWrite={false}
                             />
                         </primitive>
                     )}
-                    {/* Cercle de fond semi-transparent pour le satellite */}
-                    <mesh raycast={() => null} renderOrder={10}>
-                        <circleGeometry args={[nodeR, 32]} />
+                    {/* Simplification RADICALE Premium : Uniquement le coeur lumineux doté de son halo texturé */}
+                    <mesh raycast={() => null} renderOrder={12}>
+                        <circleGeometry args={[nodeR * 0.45, 32]} />
                         <meshBasicMaterial
                             ref={circleMatRef}
-                            color={(isPinned || isSelectedSatellite || hovered ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff').slice(0, 7)}
-                            transparent
-                            opacity={isPinned || isSelectedSatellite ? 0.45 : (hovered ? 0.35 : 0.15)}
-                            side={THREE.DoubleSide}
-                            depthWrite={false}
-                        />
-                    </mesh>
-                    {/* Petit cœur blanc opaque au centre (effet céleste planète/atome) */}
-                    <mesh raycast={() => null} renderOrder={12}>
-                        <circleGeometry args={[nodeR * 0.28, 32]} />
-                        <meshBasicMaterial
                             color="#ffffff"
                             transparent
-                            opacity={isPinned || isSelectedSatellite ? 1.0 : (hovered ? 0.95 : 0.8)}
+                            opacity={0.85}
                             depthWrite={false}
                         />
                     </mesh>
@@ -439,21 +479,7 @@ const Node = React.memo(({
                 </mesh>
             )}
 
-            {/* Hover ring for satellite nodes */}
-            {!isActive && hovered && (
-                <mesh raycast={() => null} renderOrder={11}>
-                    <ringGeometry args={[nodeR * 1.6, nodeR * 1.9, 24]} />
-                    <meshBasicMaterial
-                        ref={ringMatRef}
-                        color={theme.colors.primary.slice(0, 7)}
-                        transparent
-                        opacity={0.5 * initialNodeOpacity}
-                        side={THREE.DoubleSide}
-                        blending={THREE.AdditiveBlending}
-                        depthWrite={false}
-                    />
-                </mesh>
-            )}
+            {/* Hover ring complex supprimé pour plus de légèreté et d'élégance */}
 
             {/* Precision Crosshair on Node */}
             {(isActive || hovered) && (
@@ -469,108 +495,131 @@ const Node = React.memo(({
                 </group>
             )}
 
-            <Html center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
-                {data.isSatellite ? (
-                    <div
-                        ref={labelRef}
-                        style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            pointerEvents: 'none',
-                            userSelect: 'none',
-                            transform: 'translate3d(0, 22px, 0)',
-                            whiteSpace: 'nowrap',
-                            opacity: initialLabelOpacity,
-                            transition: 'all 0.3s ease-out',
-                            textShadow: theme.id === 'RAW_MINIMAL' ? '0 0 10px rgba(255, 255, 255, 0.15)' : '0 0 10px rgba(251, 191, 36, 0.25)'
-                        }}
-                    >
-                        <span
+            <Html zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
+                <div
+                    onPointerEnter={handleInteractiveEnter}
+                    onPointerLeave={handleInteractiveLeave}
+                    onClick={handleInteractiveClick}
+                    onDoubleClick={handleInteractiveDoubleClick}
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        pointerEvents: canInteract ? 'auto' : 'none',
+                        cursor: canInteract ? 'pointer' : 'default',
+                        userSelect: 'none',
+                        width: 'fit-content',
+                        // Ancrage horizontal et vertical : centre de la zone d'impact HTML aligné au point 3D projeté.
+                        transform: `translate(-50%, -${isMobile ? 26 : 20}px)`, 
+                    }}
+                >
+                    {/* 1. Zone d'impact transparente survolant le point 3D */}
+                    <div style={{
+                        width: isMobile ? '52px' : '40px',
+                        height: isMobile ? '52px' : '40px',
+                        borderRadius: '50%',
+                        backgroundColor: 'transparent',
+                        flexShrink: 0,
+                    }} />
+
+                    {/* 2. Les étiquettes logiquement contiguës via marges et structure Flexbox */}
+                    {data.isSatellite ? (
+                        <div
+                            ref={labelRef}
                             style={{
-                                fontSize: '15px',
-                                fontWeight: 500,
-                                fontFamily: 'var(--app-font-display)',
-                                fontStyle: 'italic',
-                                color: theme.id === 'POETIC_LIGHT' ? '#d97706' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
-                                letterSpacing: '0.08em',
-                                textShadow: isPinned || isSelectedSatellite 
-                                    ? (theme.id === 'RAW_MINIMAL' ? '0 0 15px #ffffff' : '0 0 15px #fbbf24') 
-                                    : (theme.id === 'RAW_MINIMAL' ? '0 0 10px rgba(255,255,255,0.3)' : '0 0 10px rgba(251, 191, 36, 0.3)'),
-                                opacity: isPinned || isSelectedSatellite ? 1.0 : (hovered ? 0.9 : 0.7),
-                                transition: 'all 0.2s ease-out'
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                whiteSpace: 'nowrap',
+                                marginTop: `${22 - (isMobile ? 26 : 20)}px`,
+                                opacity: initialLabelOpacity,
+                                transition: 'all 0.3s ease-out',
+                                textShadow: (theme.id === 'POETIC_LIGHT' || theme.id === 'RAW_MINIMAL') ? 'none' : '0 0 10px rgba(251, 191, 36, 0.25)'
                             }}
                         >
-                            {formattedLabel}
-                        </span>
-                    </div>
-                ) : isActive ? (
-                    <div
-                        ref={labelRef}
-                        style={{
-                            display: 'flex',
-                            flexDirection: isMobile ? 'column' : 'row',
-                            alignItems: 'center',
-                            gap: isMobile ? '6px' : '8px',
-                            transform: isMobile ? 'translate3d(0, 52px, 0)' : 'translate3d(0, 45px, 0)',
-                            opacity: 1.0,
-                            transition: 'all 0.3s ease-out',
-                            whiteSpace: 'nowrap',
-                        }}
-                    >
+                            <span
+                                style={{
+                                    fontSize: '15px',
+                                    fontWeight: isPinned ? 700 : 400, // Pinned prioritizes Bold
+                                    fontFamily: 'var(--app-font-display)',
+                                    fontStyle: 'italic',
+                                    textTransform: 'capitalize', // Regression fix: Always capitalize the first letter
+                                    color: theme.id === 'POETIC_LIGHT' ? theme.colors.text : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
+                                    letterSpacing: '0.08em',
+                                    textShadow: (theme.id === 'POETIC_LIGHT' || theme.id === 'RAW_MINIMAL') ? 'none' : isPinned || isSelectedSatellite 
+                                        ? '0 0 15px #fbbf24'
+                                        : '0 0 10px rgba(251, 191, 36, 0.3)',
+                                    opacity: isPinned || isSelectedSatellite ? 1.0 : (hovered ? 0.9 : 0.7),
+                                    transition: 'all 0.2s ease-out'
+                                }}
+                            >
+                                {formattedLabel}
+                            </span>
+                        </div>
+                    ) : isActive ? (
+                        <div
+                            ref={labelRef}
+                            style={{
+                                display: 'flex',
+                                flexDirection: isMobile ? 'column' : 'row',
+                                alignItems: 'center',
+                                gap: isMobile ? '6px' : '8px',
+                                marginTop: `${(isMobile ? 52 : 45) - (isMobile ? 26 : 20)}px`,
+                                opacity: 1.0,
+                                transition: 'all 0.3s ease-out',
+                                whiteSpace: 'nowrap',
+                            }}
+                        >
+                            <span
+                                className="graph-label font-medium"
+                                style={{
+                                    display: 'block',
+                                    color: 'var(--theme-bg)',
+                                    background: 'var(--theme-primary)',
+                                    padding: '4px 10px',
+                                    border: '1px solid var(--theme-primary)',
+                                    fontSize: isMobile ? '13px' : '14px',
+                                    fontWeight: 700,
+                                    fontFamily: 'var(--app-font-display)',
+                                    fontStyle: 'normal',
+                                    textTransform: 'uppercase', // Central word commands with UPPERCASE
+                                    letterSpacing: '0.15em',
+                                    boxShadow: (theme.id === 'POETIC_LIGHT' || theme.id === 'RAW_MINIMAL') ? 'none' : '0 0 20px rgba(245, 166, 35, 0.3)',
+                                }}
+                            >
+                                {formattedLabel}
+                            </span>
+                        </div>
+                    ) : (
                         <span
+                            ref={labelRef}
                             className="graph-label font-medium"
                             style={{
                                 display: 'block',
-                                pointerEvents: 'none',
-                                userSelect: 'none',
-                                color: 'var(--theme-bg)',
-                                background: 'var(--theme-primary)',
-                                padding: '4px 10px',
-                                border: '1px solid var(--theme-primary)',
-                                fontSize: isMobile ? '13px' : '14px',
-                                fontWeight: 500,
+                                color: theme.colors.text,
+                                background: 'transparent',
+                                padding: '12px 24px',
+                                marginTop: `${(isMobile ? (distance === 1 ? 26 : 18) : (distance === 1 ? 35 : 22)) - (isMobile ? 26 : 20)}px`,
+                                border: 'none',
+                                fontSize: isMobile ? '12px' : '15px',
+                                fontWeight: 700, // Elevate inactive concepts to Bold as requested to test weight presence
                                 fontFamily: 'var(--app-font-display)',
                                 fontStyle: 'normal',
-                                letterSpacing: '0.15em',
-                                boxShadow: '0 0 20px rgba(245, 166, 35, 0.45)',
+                                letterSpacing: distance <= 1 ? '0.15em' : '0.05em',
+                                textTransform: 'capitalize', // Regression fix: Always capitalize first letter
+                                textShadow: (distance <= 1 && theme.id !== 'POETIC_LIGHT' && theme.id !== 'RAW_MINIMAL')
+                                    ? '0 0 15px rgba(255,255,255,0.2)'
+                                    : 'none',
+                                boxShadow: 'none',
+                                whiteSpace: 'nowrap',
+                                opacity: initialLabelOpacity,
+                                transition: 'all 0.3s ease-out'
                             }}
                         >
                             {formattedLabel}
                         </span>
-
-                    </div>
-                ) : (
-                    <span
-                        ref={labelRef}
-                        className="graph-label font-medium"
-                        style={{
-                            display: 'block',
-                            pointerEvents: 'none',
-                            userSelect: 'none',
-                            color: theme.colors.text,
-                            background: 'transparent',
-                            padding: '0',
-                            border: 'none',
-                            fontSize: isMobile ? '12px' : '15px',
-                            fontWeight: distance === 1 ? 400 : 300,
-                            fontFamily: 'var(--app-font-display)',
-                            fontStyle: 'normal',
-                            letterSpacing: distance <= 1 ? '0.15em' : '0.05em',
-                            textTransform: 'none',
-                            textShadow: distance <= 1
-                                ? '0 0 15px rgba(255,255,255,0.2)'
-                                : 'none',
-                            boxShadow: 'none',
-                            transform: `translate3d(0, ${isMobile ? (distance === 1 ? 26 : 18) : (distance === 1 ? 35 : 22)}px, 0)`,
-                            whiteSpace: 'nowrap',
-                            opacity: initialLabelOpacity,
-                            transition: 'all 0.3s ease-out'
-                        }}
-                    >
-                        {formattedLabel}
-                    </span>
-                )}
+                    )}
+                </div>
             </Html>
         </group>
     );
@@ -651,7 +700,7 @@ const Edge = React.memo(({
             }
 
             if (isSatEdge) {
-                const c1 = new THREE.Color(theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24');
+                const c1 = new THREE.Color(theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24');
                 matRef.current.color.copy(c1);
             } else if (distance > 0.5) {
                 const c1 = new THREE.Color(theme.colors.secondary.slice(0, 7));
@@ -673,7 +722,7 @@ const Edge = React.memo(({
             <boxGeometry args={[0.04, 1, 0.04]} />
             <meshBasicMaterial
                 ref={matRef}
-                color={(isSatEdge ? (theme.id === 'POETIC_LIGHT' ? '#f59e0b' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : (distance <= 0.5 ? theme.colors.primary : theme.colors.secondary)).slice(0, 7)}
+                color={(isSatEdge ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : (distance <= 0.5 ? theme.colors.primary : theme.colors.secondary)).slice(0, 7)}
                 transparent
                 opacity={initialEdgeOpacity}
                 depthWrite={false}
@@ -806,27 +855,47 @@ const GraphScene = ({
     }, [isMobile, camera]);
 
     useEffect(() => {
-        // Fix Mobile : attacher au parent du canvas pour contourner OrbitControls qui mange les events
-        const targetEl = gl.domElement.parentElement || gl.domElement;
         let lastTriggerTime = 0;
         let initialPinchDist = 0;
 
         const handleWheel = (e: WheelEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const now = performance.now();
-            if (now - lastTriggerTime < 250) return; 
+            // Sur macOS, le zoom trackpad définit e.ctrlKey = true
+            const isPinch = e.ctrlKey;
 
-            if (Math.abs(e.deltaY) > 1.0) { 
-                if (e.deltaY > 0) {
-                    if (onZoomChange) { onZoomChange(ZOOM_CONCEPT - 1); lastTriggerTime = now; }
-                } else if (e.deltaY < 0) {
-                    if (onZoomChange) { onZoomChange(ZOOM_SATELLITE + 1); lastTriggerTime = now; }
+            // Identifier si l'utilisateur survole une zone UI qui doit scroller normalement
+            const target = e.target as Element;
+            const isOverScrollable = target?.closest?.('.overflow-y-auto, .overflow-x-auto, input, select, textarea');
+
+            // Si c'est un PINCH (geste de zoom), on l'intercepte TOUJOURS pour bloquer le navigateur et déclencher le switch
+            // Si c'est un scroll standard, on l'intercepte UNIQUEMENT s'il n'est pas au-dessus d'un élément scrollable de l'UI
+            const shouldIntercept = isPinch || !isOverScrollable;
+
+            if (shouldIntercept) {
+                // Verrouillage ABSOLU contre le zoom natif du navigateur ou le scroll de page global
+                e.preventDefault();
+                e.stopPropagation();
+
+                const now = performance.now();
+                if (now - lastTriggerTime < 250) return; 
+
+                if (Math.abs(e.deltaY) > 1.0) { 
+                    if (e.deltaY > 0) {
+                        // Zoom arrière / bas -> Concept
+                        if (onZoomChange) { onZoomChange(ZOOM_CONCEPT - 1); lastTriggerTime = now; }
+                    } else if (e.deltaY < 0) {
+                        // Zoom avant / haut -> Satellites
+                        if (onZoomChange) { onZoomChange(ZOOM_SATELLITE + 1); lastTriggerTime = now; }
+                    }
                 }
             }
         };
 
-        // --- GESTION DU PINCH-TO-ZOOM SUR MOBILE ---
+        // Bloqueurs spécifiques pour MacOS/iOS Safari : empêche le zoom natif "intelligent" de l'OS
+        const handleGesture = (e: Event) => {
+            e.preventDefault();
+        };
+
+        // --- GESTION DU PINCH-TO-ZOOM SUR ÉCRANS TACTILES MOBILE ---
         const handleTouchStart = (e: TouchEvent) => {
             if (e.touches.length === 2) {
                 initialPinchDist = Math.hypot(
@@ -838,7 +907,9 @@ const GraphScene = ({
 
         const handleTouchMove = (e: TouchEvent) => {
             if (e.touches.length === 2) {
+                // Bloquer ABSOLUMENT le comportement de zoom natif du viewport mobile (iOS)
                 e.preventDefault();
+                
                 const now = performance.now();
                 if (now - lastTriggerTime < 350) return; 
 
@@ -848,7 +919,7 @@ const GraphScene = ({
                 );
 
                 const diff = currentDist - initialPinchDist;
-                const sensitivityThreshold = 10; // Plus sensible comme demandé (était 25)
+                const sensitivityThreshold = 10; // Sensibilité accrue comme demandé
 
                 if (Math.abs(diff) > sensitivityThreshold) {
                     if (diff > 0) {
@@ -859,21 +930,28 @@ const GraphScene = ({
                         if (onZoomChange) onZoomChange(ZOOM_CONCEPT - 1);
                     }
                     lastTriggerTime = now;
-                    initialPinchDist = currentDist; // Reset anchor
+                    initialPinchDist = currentDist; // Reset de l'ancrage de distance
                 }
             }
         };
 
-        targetEl.addEventListener('wheel', handleWheel, { passive: false });
-        targetEl.addEventListener('touchstart', handleTouchStart, { passive: true });
-        targetEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+        // Enregistrement GLOBAL sur la window pour garantir qu'aucun coin de l'écran ne puisse déclencher un zoom navigateur
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        window.addEventListener('touchstart', handleTouchStart, { passive: true });
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+        
+        // Spécifique Safari Mac pour blinder l'annulation du zoom natif
+        window.addEventListener('gesturestart', handleGesture, { passive: false });
+        window.addEventListener('gesturechange', handleGesture, { passive: false });
 
         return () => {
-            targetEl.removeEventListener('wheel', handleWheel);
-            targetEl.removeEventListener('touchstart', handleTouchStart);
-            targetEl.removeEventListener('touchmove', handleTouchMove);
+            window.removeEventListener('wheel', handleWheel);
+            window.removeEventListener('touchstart', handleTouchStart);
+            window.removeEventListener('touchmove', handleTouchMove);
+            window.removeEventListener('gesturestart', handleGesture);
+            window.removeEventListener('gesturechange', handleGesture);
         };
-    }, [onZoomChange, gl, ZOOM_CONCEPT, ZOOM_SATELLITE]);
+    }, [onZoomChange, ZOOM_CONCEPT, ZOOM_SATELLITE]);
 
     useEffect(() => {
         if (!allNodesOnMap || allNodesOnMap.length === 0) return;
@@ -1501,18 +1579,7 @@ const GraphScene = ({
 // --- Export ---
 export default function Constellation3DV2(props: ConstellationProps) {
     const theme = THEMES[props.activeTheme] || THEMES.AMBER;
-    const [selectedSatellite, setSelectedSatellite] = useState<{name: string, desc: string} | null>(null);
-
-    // Close description if satellites are hidden or center word changes
-    useEffect(() => {
-        if (!props.showSatellites) {
-            setSelectedSatellite(null);
-        }
-    }, [props.showSatellites]);
-
-    useEffect(() => {
-        setSelectedSatellite(null);
-    }, [props.centerWord]);
+    const { selectedSatellite, setSelectedSatellite } = props;
 
     const { defaultZoom } = getDynamicZoomSettings();
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -1560,11 +1627,11 @@ export default function Constellation3DV2(props: ConstellationProps) {
                                     fontFamily: 'var(--app-font-display)',
                                     fontStyle: 'italic',
                                     fontSize: '14px',
-                                    fontWeight: 500,
-                                    color: theme.id === 'POETIC_LIGHT' ? '#d97706' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
+                                    fontWeight: 700, // Heading emphasis
+                                    color: theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
                                     marginBottom: '10px',
                                     letterSpacing: '0.15em',
-                                    textTransform: 'uppercase'
+                                    textTransform: 'capitalize'
                                 }}
                             >
                                 {selectedSatellite.name}
@@ -1572,8 +1639,8 @@ export default function Constellation3DV2(props: ConstellationProps) {
                             <p 
                                 style={{
                                     fontFamily: 'var(--app-font-display)',
-                                    fontWeight: 300,
-                                    fontStyle: 'italic',
+                                    fontWeight: 400, // Core legibility
+                                    fontStyle: 'normal',
                                     fontSize: '13px',
                                     lineHeight: 1.6,
                                     color: theme.id === 'POETIC_LIGHT' ? 'rgba(0,0,0,0.7)' : theme.id === 'RAW_MINIMAL' ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.75)',
@@ -1588,13 +1655,7 @@ export default function Constellation3DV2(props: ConstellationProps) {
             </AnimatePresence>
 
             {/* Technical Overlays */}
-            <div className="point-grid" />
             <div className="grain-overlay" />
-
-            <div className="crosshair-marker crosshair-tl" />
-            <div className="crosshair-marker crosshair-tr" />
-            <div className="crosshair-marker crosshair-bl" />
-            <div className="crosshair-marker crosshair-br" />
         </div>
     );
 }

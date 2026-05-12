@@ -22,14 +22,19 @@
   /* ─── POLICE DISPLAY (Titres, Étiquettes 3D) ─────────────────────────── */
   /*     Options disponibles (décommenter la ligne souhaitée) :              */
 
-  --app-font-display: "DM Mono", monospace;
+  /* --app-font-display: "DM Mono", monospace; */
   /* --app-font-display: "JetBrains Mono", monospace; */
   /* --app-font-display: "IBM Plex Mono", monospace;  */
-  /* --app-font-display: "Geist Mono", monospace;     */
+  --app-font-display: "Space Mono", monospace;
+  /* --app-font-display: "Geist Mono", monospace; */
 
   /* ─── POLICE BODY (Sous-titres S.M.S, Éléments secondaires) ─────────── */
   /*     Options disponibles (décommenter la ligne souhaitée) :              */
-  --app-font-body: "Schibsted Grotesk", sans-serif;
+  /* --app-font-body: "Schibsted Grotesk", sans-serif; */
+  /* --app-font-body: "Outfit", sans-serif; */
+  --app-font-body: "Plus Jakarta Sans", sans-serif;
+  /* --app-font-body: "Manrope", sans-serif; */
+  /* --app-font-body: "Space Grotesk", sans-serif; */
 
   /* ─── Opacités des overlays (ajuster sans toucher à la logique) ───────── */
   --app-scanline-opacity: 0.015;
