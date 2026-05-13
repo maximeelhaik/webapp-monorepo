@@ -12,26 +12,28 @@ const BOOT_LINES = [
 ];
 
 const INTRO_WORDS = [
-  "entropie", "mémoire", "lumière", "système", "origine",
-  "données", "réseau", "synapse", "modèle", "structure",
-  "quantum", "chaos", "harmonie", "fractale", "algorithme",
-  "éther", "matrice", "vérité", "illusion", "spectre",
-  "résonance", "matière", "espace", "temps", "évolution",
-  "conscience", "énergie", "gravité", "horizon", "fleur",
-  "paradigme", "ontologie", "sémantique", "cognition", "flux",
-  "cosmos", "orbite", "atome", "prisme", "nexus", "atlas",
-  "écho", "hélice", "plasma", "pulsar", "aura", "onde",
-  "noyau", "cycle", "infini", "genèse", "vision", "clarté",
-  "abysse", "zénith", "nadir", "apex", "delta", "cristal",
-  "source", "dualité", "symétrie", "vortex", "songe", "mythe",
-  "logos", "éclosion", "stase", "rayon", "archétype", "stèle"
+  "horizon", "songe", "sillage", "racine", "souffle",
+  "lumière", "écho", "miroir", "archipel", "éclosion",
+  "harmonie", "prisme", "spirale", "aurore", "crépuscule",
+  "mémoire", "passage", "chimère", "rythme", "empreinte",
+  "métamorphose", "résonance", "reflet", "odyssée", "vertige",
+  "lisière", "fragments", "alchimie", "source", "abysse",
+  "zénith", "cristal", "phare", "énigme", "nuage",
+  "fleuve", "cime", "solstice", "élan", "mirage",
+  "voile", "éclat", "prélude", "partition", "esquisse",
+  "brise", "pétale", "atlas", "paradoxe", "silence",
+  "sève", "envol", "chrysalide", "éclipse", "boussole",
+  "dérive", "trame", "murmure", "vestige", "arche",
+  "lueur", "oasis", "plume", "pierre", "rivage",
+  "récif", "météore", "solitude", "sésame", "trace"
 ];
 
 // --- RENDERER INDIVIDUEL POUR EFFET MAGNÉTIQUE LOCALISÉ ---
 const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, activeTheme }: { node: any, springX: any, springY: any, onWordClick: any, clickedWord: string | null, activeTheme: string }) => {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
   const isClicked = clickedWord === node.word;
-  const isFading = clickedWord !== null && !isClicked;
+  const isLoading = clickedWord !== null;
+  const isOther = isLoading && !isClicked;
 
   // Coordonnée théorique normalisée à l'écran (-0.5 à 0.5)
   const anchorX = (node.x / 100) - 0.5;
@@ -42,15 +44,14 @@ const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, a
     if (isClicked) return 0;
     const dx = (mx as number) - anchorX;
     const dy = (my as number) - anchorY;
-    // Rayon réduit pour plus de subtilité (comme demandé)
-    const dist = Math.hypot(dx, dy * 0.65);
-    const limit = isMobile ? 0.14 : 0.21;
+    const dist = Math.hypot(dx, dy);
+    const limit = isMobile ? 0.16 : 0.25;
     
     if (dist < limit) {
-      // Courbe adoucie (puissance 2.8 au lieu de 2.2 pour une sortie de zone plus douce)
-      const power = Math.pow(1 - (dist / limit), 2.8);
-      const vectorX = dx / dist; 
-      return node.polarity * (vectorX * power * node.magPowerX);
+      // Attraction pure et stable sans normalisation de vecteur pour éliminer tout effet d'orbite/rotation
+      const power = Math.pow(1 - (dist / limit), 1.8);
+      // Traction douce et faible vers le curseur, s'annulant à 0 à l'approche
+      return dx * power * (isMobile ? 65 : 100);
     }
     return 0;
   });
@@ -59,13 +60,12 @@ const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, a
     if (isClicked) return 0;
     const dx = (mx as number) - anchorX;
     const dy = (my as number) - anchorY;
-    const dist = Math.hypot(dx, dy * 0.65);
-    const limit = isMobile ? 0.14 : 0.21;
+    const dist = Math.hypot(dx, dy);
+    const limit = isMobile ? 0.16 : 0.25;
     
     if (dist < limit) {
-      const power = Math.pow(1 - (dist / limit), 2.8);
-      const vectorY = dy / dist; 
-      return node.polarity * (vectorY * power * node.magPowerY);
+      const power = Math.pow(1 - (dist / limit), 1.8);
+      return dy * power * (isMobile ? 65 : 100);
     }
     return 0;
   });
@@ -78,7 +78,7 @@ const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, a
         // Cela supprime le reflow constant du navigateur et garantit un 60fps stable.
         left: isClicked ? "50%" : `${node.x}%`,
         top: isClicked ? "50%" : `${node.y}%`,
-        opacity: isFading ? 0 : (isClicked ? 1 : [0.4, 0.8, 0.4]),
+        opacity: 1.0, // Reste visible pendant le chargement. Le parent global "intro-screen" gère le fade-out.
         zIndex: isClicked ? 100 : 10,
       }}
       transition={
@@ -86,23 +86,30 @@ const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, a
           duration: 0.8,
           ease: [0.16, 1, 0.3, 1]
         } : {
-          opacity: { duration: 3 + Math.random() * 3, repeat: Infinity, repeatType: "mirror" }
+          opacity: { duration: 0.5 } // Clean fade-in on enter, instead of continuous looping repaints
         }
       }
-      className={`absolute flex items-center justify-center ${isClicked ? 'pointer-events-none' : 'pointer-events-auto hover:z-20'}`}
+      className={`absolute flex items-center justify-center ${isClicked || isOther ? 'pointer-events-none' : 'pointer-events-auto hover:z-20'}`}
       style={{ width: 0, height: 0, translateX: '-50%', translateY: '-50%' }}
     >
       {/* COUCHE DE DÉRIVE IDLE : Accélérée par GPU via 'translate' au lieu de 'left/top' */}
       <motion.div
-        animate={isClicked ? { x: 0, y: 0 } : {
+        animate={isClicked ? { x: 0, y: 0, opacity: 1 } : {
             x: [0, node.driftX, 0],
-            y: [0, node.driftY, 0]
+            y: [0, node.driftY, 0],
+            opacity: isOther 
+              ? [0.1, 1.0, 0.25, 0.95, 0.05, 1.0, 0.1] // Scintillement plus fort (plus grande amplitude d'opacité)
+              : [0.55, 0.9, 0.65, 0.95, 0.5, 0.85, 0.55] // Scintillement normal et premium
         }}
         transition={isClicked ? { duration: 0.8, ease: "easeOut" } : {
-            duration: node.duration,
-            repeat: Infinity,
-            delay: node.delay,
-            ease: "easeInOut"
+            x: { duration: node.duration, repeat: Infinity, delay: node.delay, ease: "easeInOut" },
+            y: { duration: node.duration, repeat: Infinity, delay: node.delay, ease: "easeInOut" },
+            opacity: { 
+              duration: isOther ? (node.twinkleDuration || 10) * 0.35 : (node.twinkleDuration || 10), // Scintillement plus rapide (x3) pendant le chargement
+              repeat: Infinity, 
+              delay: node.delay, 
+              ease: "easeInOut" 
+            }
         }}
         style={{ width: 0, height: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
@@ -157,29 +164,12 @@ const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, a
             />
           </div>
 
-          {/* Crosshair (active only) */}
-          <AnimatePresence>
-            {isClicked && (
-              <div className="absolute pointer-events-none" style={{ top: 0, left: 0, transform: 'translate(-50%, -50%)' }}>
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 0.3 }}
-                  transition={{ delay: 0.2, duration: 0.6 }}
-                  className="pointer-events-none flex items-center justify-center"
-                  style={{ width: 0, height: 0 }}
-                >
-                  <div className="absolute w-[40px] h-[1px] bg-white" style={{ transform: 'rotate(45deg)' }} />
-                  <div className="absolute w-[40px] h-[1px] bg-white" style={{ transform: 'rotate(-45deg)' }} />
-                </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
 
           {/* The Label */}
           <div className="absolute pointer-events-none" style={{ top: 0, left: 0, transform: 'translate(-50%, -50%)' }}>
             <motion.div
               animate={{
-                y: isClicked ? (isMobile ? 52 : 45) : (isMobile ? 12 : 15),
+                y: isClicked ? 33 : (isMobile ? 12 : 15),
                 color: isClicked ? 'var(--theme-bg)' : 'var(--theme-text)',
                 backgroundColor: isClicked ? 'var(--theme-primary)' : 'transparent',
                 borderColor: isClicked ? 'var(--theme-primary)' : 'transparent',
@@ -189,7 +179,8 @@ const FloatingNode = memo(({ node, springX, springY, onWordClick, clickedWord, a
               style={{
                 fontFamily: 'var(--app-font-display)',
                 fontSize: isClicked ? (isMobile ? '13px' : '14px') : '14px',
-                fontWeight: 700, // Elevate all concepts to Bold globally
+                fontWeight: 400, // Toujours Romain Regular 400 pour correspondre au centre de la carte
+                textTransform: isClicked ? 'uppercase' : 'none', // Majuscule lorsqu'il est au centre comme demandé
                 letterSpacing: isClicked ? '0.15em' : '0.05em',
                 padding: isClicked ? '4px 10px' : '4px',
                 boxShadow: isClicked 
@@ -282,6 +273,7 @@ const IntroFloatingNodes = memo(({ onWordClick, clickedWord, activeTheme }: { on
 
       const duration = 25 + Math.random() * 20;
       const delay = Math.random() * -20;
+      const twinkleDuration = 6 + Math.random() * 7; // Fréquence aléatoire organique pour scintillement
       
       const driftX = (Math.random() - 0.5) * 25; // Maintenant en PIXELS pour une translation GPU fluide
       const driftY = (Math.random() - 0.5) * 25;
@@ -293,7 +285,7 @@ const IntroFloatingNodes = memo(({ onWordClick, clickedWord, activeTheme }: { on
       // Force de traction : 100% Attraction (pure) pour faciliter le clic
       const polarity = 1; 
 
-      return { id: i, word, x: posX, y: posY, duration, delay, driftX, driftY, formattedWord, magPowerX, magPowerY, polarity };
+      return { id: i, word, x: posX, y: posY, duration, delay, driftX, driftY, formattedWord, magPowerX, magPowerY, polarity, twinkleDuration };
     });
   }, [isMobile]);
 
@@ -1835,8 +1827,15 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header (visible when initialized) */}
-      {initialized && (
-        <header className="w-full px-3 sm:px-8 pt-[max(env(safe-area-inset-top),0.8rem)] sm:pt-[max(env(safe-area-inset-top),2rem)] pb-2 sm:pb-5 flex flex-row justify-between items-center gap-3 z-40 pointer-events-none">
+      <AnimatePresence>
+        {initialized && (
+          <motion.header 
+            initial={{ opacity: 0, y: -20, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -15, filter: 'blur(8px)' }}
+            transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
+            className="w-full px-3 sm:px-8 pt-[max(env(safe-area-inset-top),0.8rem)] sm:pt-[max(env(safe-area-inset-top),2rem)] pb-2 sm:pb-5 flex flex-row justify-between items-center gap-3 z-40 pointer-events-none"
+          >
           <div className="pointer-events-auto flex flex-col gap-0 shrink-0">
             <h1
               className="font-bold tracking-[-0.02em] leading-tight select-none app-title cursor-pointer transition-opacity hover:opacity-75 active:scale-[0.98]"
@@ -2161,8 +2160,9 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
-        </header>
-      )}
+          </motion.header>
+        )}
+      </AnimatePresence>
 
       {/* Header separator — removed for clarity */}
 
@@ -2190,9 +2190,16 @@ export default function App() {
       </AnimatePresence>
 
       {/* Footer — Breadcrumb (visible when initialized) */}
-      {initialized && (
-        <footer className="w-full max-w-7xl mx-auto px-3 sm:px-8 pt-3 pb-[max(env(safe-area-inset-bottom),0.8rem)] flex flex-row justify-between items-center gap-3 z-20 font-mono"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <AnimatePresence>
+        {initialized && (
+          <motion.footer 
+            initial={{ opacity: 0, y: 20, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: 15, filter: 'blur(8px)' }}
+            transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
+            className="w-full max-w-7xl mx-auto px-3 sm:px-8 pt-3 pb-[max(env(safe-area-inset-bottom),0.8rem)] flex flex-row justify-between items-center gap-3 z-20 font-mono"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}
+          >
           <div className="flex items-center select-none min-w-0 flex-1 overflow-hidden">
             <div className="flex items-center gap-1 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
               {history.map((word, i) => (
@@ -2228,8 +2235,9 @@ export default function App() {
           >
             {/* Status indicators moved to header */}
           </div>
-        </footer>
-      )}
+          </motion.footer>
+        )}
+      </AnimatePresence>
 
       {/* Floating Map Labels unified in premium header control deck */}
 
@@ -2322,10 +2330,11 @@ export default function App() {
             className="pointer-events-none fixed top-0 left-0 z-[200] select-none hidden md:block -translate-x-1/2 -translate-y-1/2 mix-blend-difference"
             style={{ x: cursorX, y: cursorY }}
             variants={{
-              default: { width: 12, height: 12, border: "1px solid #fff", backgroundColor: "transparent", borderRadius: "0%", opacity: 0.8 },
-              // Carré creux uniforme qui ne devient PAS plein, pour une esthétique cohérente
-              pointer: { width: 24, height: 24, border: "1px solid var(--theme-primary)", backgroundColor: "transparent", borderRadius: "0%", opacity: 0.9 },
-              text: { width: 1, height: 22, backgroundColor: "#fff", borderRadius: "0%", opacity: 1 },
+              // Cercle fin élégant pour le comportement par défaut
+              default: { width: 16, height: 16, border: "1.5px solid #fff", backgroundColor: "transparent", borderRadius: "50%", rotate: 0, opacity: 0.7 },
+              // Losange (Diamond) rempli pour la sélection de pointeur
+              pointer: { width: 12, height: 12, border: "none", backgroundColor: "var(--theme-primary)", borderRadius: "0%", rotate: 45, opacity: 1.0 },
+              text: { width: 1, height: 22, backgroundColor: "#fff", borderRadius: "0%", rotate: 0, opacity: 1 },
             }}
             animate={cursorType}
             transition={{ type: "spring", damping: 35, stiffness: 500, mass: 0.3 }}

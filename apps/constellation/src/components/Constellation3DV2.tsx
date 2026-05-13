@@ -100,6 +100,7 @@ const _scratchV1 = new THREE.Vector3();
 const _scratchV2 = new THREE.Vector3();
 const _scratchV3 = new THREE.Vector3();
 const _scratchV4 = new THREE.Vector3();
+const _scratchColor = new THREE.Color();
 
 /**
  * Node — Cercle 2D billboard (toujours face caméra)
@@ -148,8 +149,8 @@ const Node = React.memo(({
     const [hovered, setHovered] = useState(false);
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     
-    // Restreindre les interactions des satellites UNIQUEMENT si on est en mode Satellite Focus
-    const canInteract = data.isSatellite ? !!showSatellites : true;
+    // Restreindre les interactions des satellites UNIQUEMENT si on est en mode Satellite Focus, SAUF s'ils sont épinglés !
+    const canInteract = data.isSatellite ? (showSatellites || isPinned) : true;
 
     // Si l'interaction est coupée pendant qu'on survolait, réinitialiser proprement l'état local et global
     useEffect(() => {
@@ -184,8 +185,6 @@ const Node = React.memo(({
     const circleMatRef = useRef<THREE.MeshBasicMaterial>(null);
     const glowMatRef = useRef<THREE.MeshBasicMaterial>(null);
     const ringMatRef = useRef<THREE.MeshBasicMaterial>(null);
-    const cross1MatRef = useRef<THREE.MeshBasicMaterial>(null);
-    const cross2MatRef = useRef<THREE.MeshBasicMaterial>(null);
     const orbitRef = useRef<any>(null);
     const orbitMatRef = useRef<THREE.LineBasicMaterial>(null);
     const labelRef = useRef<any>(null);
@@ -216,9 +215,9 @@ const Node = React.memo(({
             ? 0.90 
             : (distance === 2 ? 0.80 : 0.70));
 
-    // Opacité de base selon le mode de Focus choisi (Satellite Focus vs Network Focus)
+    // Opacité de base selon le mode de Focus choisi (Satellite Focus vs Network Focus), épinglés restant visibles !
     const baseOpacity = data.isSatellite
-        ? (showSatellites ? 1.0 : 0.15)
+        ? ((showSatellites || isPinned) ? 1.0 : 0.15)
         : (distance === 0
             ? 1.0
             : (showSatellites ? 0.15 : subtleNetworkOpacity));
@@ -275,47 +274,54 @@ const Node = React.memo(({
             }
         }
 
-        // --- CALCUL DE L'OPACITÉ DÉTERMINÉE PAR LE SWITCH DIRECT ---
+        // --- CALCUL DE L'OPACITÉ DÉTERMINÉE PAR LE SWITCH DIRECT (ENCORE FORCÉ POUR PINNED) ---
         const nodeOpacity = data.isSatellite 
-            ? (showSatellites ? 1.0 : 0.1) 
+            ? ((showSatellites || isPinned) ? 1.0 : 0.1) 
             : (distance === 0 ? 1.0 : baseOpacity);
 
         const labelTextOpacity = data.isSatellite 
-            ? (showSatellites ? 1.0 : 0.1) 
+            ? ((showSatellites || isPinned) ? 1.0 : 0.1) 
             : (distance === 0 
                 ? 1.0 
-                : (labelsOpaque ? baseOpacity : (distance === 1 ? nodeOpacity : 0.0)));
+                : (labelsOpaque ? 1.0 : (distance === 1 ? 1.0 : 0.0))); // Boosted to 1.0 for 100% crisp opacity as requested
 
-        // Mise à jour directe des matériaux pour la performance
+        // Mise à jour progressive des matériaux pour un feeling ultra premium (Design Spells)
+        const lerpFactor = 0.15;
+
         if (circleMatRef.current) {
-            // Le circleMatRef gère maintenant le coeur brillant du satellite OU la forme diamant du centre principal
-            circleMatRef.current.opacity = (data.isSatellite
-                ? (isSelectedSatellite || isPinned ? 1.0 : (hovered ? 0.95 : 0.85)) 
-                : nodeOpacity) * (data.isSatellite ? (showSatellites ? 1.0 : 0.1) : 1.0);
+            const targetOpacity = (data.isSatellite
+                ? 1.0 
+                : nodeOpacity) * (data.isSatellite ? ((showSatellites || isPinned) ? 1.0 : 0.1) : 1.0);
+            
+            circleMatRef.current.opacity = THREE.MathUtils.lerp(circleMatRef.current.opacity, targetOpacity, lerpFactor);
             
             const baseColorStr = isActive
                 ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : theme.colors.primary)
                 : (data.isSatellite 
-                    ? '#ffffff' // Toujours un pur point lumineux pour les satellites (très premium)
+                    ? '#ffffff'
                     : (hovered ? '#ffffff' : theme.colors.secondary));
-            circleMatRef.current.color.copy(new THREE.Color(baseColorStr.slice(0, 7)));
+            _scratchColor.set(baseColorStr.slice(0, 7));
+            circleMatRef.current.color.lerp(_scratchColor, lerpFactor);
         }
         if (glowMatRef.current) {
-            // Ajustement précis pour un halo discret mais perceptible
             const glowBase = isActive 
-                ? 0.28 // Centre rayonnant doux
+                ? 0.28
                 : (data.isSatellite 
                     ? (isSelectedSatellite || isPinned ? 0.30 : (hovered ? 0.22 : 0.12)) 
                     : (hovered ? 0.10 : 0.03));
-            glowMatRef.current.opacity = glowBase * nodeOpacity;
+            
+            glowMatRef.current.opacity = THREE.MathUtils.lerp(glowMatRef.current.opacity, glowBase * nodeOpacity, lerpFactor);
+            
             const bubbleColorStr = isActive
                 ? (showSatellites ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : theme.colors.primary)
                 : (data.isSatellite ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : '#ffffff');
-            glowMatRef.current.color.copy(new THREE.Color(bubbleColorStr.slice(0, 7)));
+            
+            _scratchColor.set(bubbleColorStr.slice(0, 7));
+            glowMatRef.current.color.lerp(_scratchColor, lerpFactor);
         }
-        if (ringMatRef.current) ringMatRef.current.opacity = 0.35 * nodeOpacity;
-        if (cross1MatRef.current) cross1MatRef.current.opacity = 0.2 * nodeOpacity;
-        if (cross2MatRef.current) cross2MatRef.current.opacity = 0.2 * nodeOpacity;
+        if (ringMatRef.current) {
+            ringMatRef.current.opacity = THREE.MathUtils.lerp(ringMatRef.current.opacity, 0.35 * nodeOpacity, lerpFactor);
+        }
 
         // Mise à jour de la trajectoire orbitale elliptique RIGIDE et INSTANTANÉE (mathématiquement verrouillée)
         if (orbitRef.current && data.parentId) {
@@ -341,9 +347,10 @@ const Node = React.memo(({
                     orbitRef.current.scale.set(dist, dist, 1.0);
                 }
 
-                // 6. Opacité tamisée (Réduite à 0.35 pour plus d'élégance comme demandé)
+                // 6. Opacité tamisée amortie (Réduite à 0.35 pour plus d'élégance comme demandé)
                 if (orbitMatRef.current) {
-                    orbitMatRef.current.opacity = showSatellites ? 0.35 : 0.0;
+                    const targetOrbitOpacity = (showSatellites || isPinned) ? 0.35 : 0.0;
+                    orbitMatRef.current.opacity = THREE.MathUtils.lerp(orbitMatRef.current.opacity, targetOrbitOpacity, lerpFactor);
                 }
             }
         }
@@ -374,7 +381,7 @@ const Node = React.memo(({
         if (e && e.stopPropagation) e.stopPropagation();
         setHovered(true);
         if (data.isSatellite && setSelectedSatellite) {
-            setSelectedSatellite({ name: data.label, desc: data.description || '' });
+            setSelectedSatellite({ name: formattedLabel, desc: data.description || '' });
         }
     };
 
@@ -395,7 +402,7 @@ const Node = React.memo(({
         clickTimeoutRef.current = setTimeout(() => {
             if (data.isSatellite) {
                 if (onPinSatellite) {
-                    onPinSatellite({ name: data.label, desc: data.description || '' });
+                    onPinSatellite({ name: formattedLabel, desc: data.description || '' });
                 }
             } else {
                 onClick(data.id); 
@@ -481,19 +488,7 @@ const Node = React.memo(({
 
             {/* Hover ring complex supprimé pour plus de légèreté et d'élégance */}
 
-            {/* Precision Crosshair on Node */}
-            {(isActive || hovered) && (
-                <group rotation={[0, 0, Math.PI / 4]} renderOrder={12}>
-                    <mesh raycast={() => null}>
-                        <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial ref={cross1MatRef} color="#ffffff" transparent opacity={0.3 * initialNodeOpacity} depthWrite={false} />
-                    </mesh>
-                    <mesh raycast={() => null} rotation={[0, 0, Math.PI / 2]}>
-                        <boxGeometry args={[nodeR * 3, 0.01, 0.01]} />
-                        <meshBasicMaterial ref={cross2MatRef} color="#ffffff" transparent opacity={0.3 * initialNodeOpacity} depthWrite={false} />
-                    </mesh>
-                </group>
-            )}
+            {/* Precision Crosshair retiré comme demandé */}
 
             <Html zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
                 <div
@@ -533,23 +528,19 @@ const Node = React.memo(({
                                 whiteSpace: 'nowrap',
                                 marginTop: `${22 - (isMobile ? 26 : 20)}px`,
                                 opacity: initialLabelOpacity,
-                                transition: 'all 0.3s ease-out',
-                                textShadow: (theme.id === 'POETIC_LIGHT' || theme.id === 'RAW_MINIMAL') ? 'none' : '0 0 10px rgba(251, 191, 36, 0.25)'
+                                transition: 'all 0.3s ease-out'
                             }}
                         >
                             <span
                                 style={{
                                     fontSize: '15px',
-                                    fontWeight: isPinned ? 700 : 400, // Pinned prioritizes Bold
+                                    fontWeight: (hovered || isSelectedSatellite || isPinned) ? 700 : 400, // Enforced dynamic weight as requested (700 on hover/select, 400 normal)
                                     fontFamily: 'var(--app-font-display)',
                                     fontStyle: 'italic',
                                     textTransform: 'capitalize', // Regression fix: Always capitalize the first letter
                                     color: theme.id === 'POETIC_LIGHT' ? theme.colors.text : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
-                                    letterSpacing: '0.08em',
-                                    textShadow: (theme.id === 'POETIC_LIGHT' || theme.id === 'RAW_MINIMAL') ? 'none' : isPinned || isSelectedSatellite 
-                                        ? '0 0 15px #fbbf24'
-                                        : '0 0 10px rgba(251, 191, 36, 0.3)',
-                                    opacity: isPinned || isSelectedSatellite ? 1.0 : (hovered ? 0.9 : 0.7),
+                                    letterSpacing: '0.15em', // Boosted to 0.15em for optimal legibility per request
+                                    opacity: 1.0, // 100% opacity per request
                                     transition: 'all 0.2s ease-out'
                                 }}
                             >
@@ -563,8 +554,7 @@ const Node = React.memo(({
                                 display: 'flex',
                                 flexDirection: isMobile ? 'column' : 'row',
                                 alignItems: 'center',
-                                gap: isMobile ? '6px' : '8px',
-                                marginTop: `${(isMobile ? 52 : 45) - (isMobile ? 26 : 20)}px`,
+                                marginTop: `${22 - (isMobile ? 26 : 20)}px`,
                                 opacity: 1.0,
                                 transition: 'all 0.3s ease-out',
                                 whiteSpace: 'nowrap',
@@ -579,7 +569,7 @@ const Node = React.memo(({
                                     padding: '4px 10px',
                                     border: '1px solid var(--theme-primary)',
                                     fontSize: isMobile ? '13px' : '14px',
-                                    fontWeight: 700,
+                                    fontWeight: 400, // Lowered to 400 to test a lighter, ultra-sleek aesthetic in the main filled box
                                     fontFamily: 'var(--app-font-display)',
                                     fontStyle: 'normal',
                                     textTransform: 'uppercase', // Central word commands with UPPERCASE
@@ -598,18 +588,16 @@ const Node = React.memo(({
                                 display: 'block',
                                 color: theme.colors.text,
                                 background: 'transparent',
-                                padding: '12px 24px',
-                                marginTop: `${(isMobile ? (distance === 1 ? 26 : 18) : (distance === 1 ? 35 : 22)) - (isMobile ? 26 : 20)}px`,
+                                padding: '4px 12px',
+                                marginTop: `${18 - (isMobile ? 26 : 20)}px`,
                                 border: 'none',
                                 fontSize: isMobile ? '12px' : '15px',
-                                fontWeight: 700, // Elevate inactive concepts to Bold as requested to test weight presence
+                                fontWeight: 400, // Restored normal weight to improve overall texture and hierarchy
                                 fontFamily: 'var(--app-font-display)',
                                 fontStyle: 'normal',
                                 letterSpacing: distance <= 1 ? '0.15em' : '0.05em',
                                 textTransform: 'capitalize', // Regression fix: Always capitalize first letter
-                                textShadow: (distance <= 1 && theme.id !== 'POETIC_LIGHT' && theme.id !== 'RAW_MINIMAL')
-                                    ? '0 0 15px rgba(255,255,255,0.2)'
-                                    : 'none',
+                                textShadow: 'none',
                                 boxShadow: 'none',
                                 whiteSpace: 'nowrap',
                                 opacity: initialLabelOpacity,
@@ -636,6 +624,7 @@ const Edge = React.memo(({
     distance = 0,
     theme,
     showSatellites = true,
+    isPinned = false,
 }: {
     sourceId: string;
     targetId: string;
@@ -644,6 +633,7 @@ const Edge = React.memo(({
     distance?: number;
     theme: any;
     showSatellites?: boolean;
+    isPinned?: boolean;
 }) => {
     const meshRef = useRef<THREE.Mesh>(null);
     const matRef = useRef<THREE.MeshBasicMaterial>(null);
@@ -651,10 +641,27 @@ const Edge = React.memo(({
     const progress = useRef(0);
 
     const isSatEdge = sourceId.startsWith('sat-') || targetId.startsWith('sat-');
-    const subtleEdgeOpacity = 0.90;
-    const baseOpacity = isSatEdge
-        ? (showSatellites ? 0.8 : 0.1)
-        : (showSatellites ? 0.15 : (distance <= 0.5 ? 1.0 : subtleEdgeOpacity));
+    const isLight = theme.id === 'POETIC_LIGHT';
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const ZOOM_CONCEPT = isMobile ? 7.0 : 9.5;
+
+    // Fonction unifiée pour garantir que l'opacité initiale et l'opacité continue sont identiques
+    const getTargetOpacity = (showSats: boolean, isPinnedEdge: boolean) => {
+        if (isSatEdge) {
+            return (showSats || isPinnedEdge) ? 0.8 : 0.1;
+        }
+        // En mode Concept : Liens de degré 1 et 2 portés uniformément à 1.0 pour éliminer toute disparité d'opacité.
+        // Le contraste hiérarchique repose désormais uniquement sur le code couleur premium du thème (Blanc vs Gris).
+        const base = 1.0;
+        
+        if (showSats) {
+            // En mode Satellite : on les estompe davantage pour laisser la primauté aux orbites (opacité 0.35)
+            return base * (isLight ? 0.16 : 0.12); 
+        }
+        return base;
+    };
+
+    const initialEdgeOpacity = getTargetOpacity(!!showSatellites, !!isPinned);
 
     useFrame(({ camera }, delta) => {
         const p1 = nodePositionsRef.current.get(sourceId);
@@ -680,46 +687,36 @@ const Edge = React.memo(({
                 new THREE.Vector3(0, 1, 0),
                 dir
             );
-            meshRef.current.scale.set(1, currentLength, 1);
+            
+            // Compensation dynamique linéaire parfaite de l'épaisseur visuelle (épaisseur strictement constante à l'écran)
+            const zoomFactor = ZOOM_CONCEPT / camera.zoom;
+            meshRef.current.scale.set(zoomFactor, currentLength, zoomFactor);
         }
 
-        // --- CALCUL DE L'OPACITÉ DÉTERMINÉE PAR LE SWITCH DIRECT ---
-        const isLight = theme.id === 'POETIC_LIGHT';
+        // --- CALCUL DE L'OPACITÉ ET DES COULEURS AMORTIES ---
         if (matRef.current) {
-            const baseMultiplier = isLight ? 0.8 : 0.4;
+            const targetEdgeOpacity = getTargetOpacity(!!showSatellites, !!isPinned);
+            matRef.current.opacity = THREE.MathUtils.lerp(matRef.current.opacity, targetEdgeOpacity, 0.15);
 
+            let targetColorHex = theme.colors.primary;
             if (isSatEdge) {
-                matRef.current.opacity = showSatellites ? 0.8 : 0.1;
-            } else {
-                // Amélioration : Rendre les liens degré > 1 plus visibles en mode concept (était trop faible, ~0.36)
-                if (!showSatellites) {
-                    matRef.current.opacity = (distance <= 0.5) ? 1.0 : (isLight ? 0.7 : 0.6); 
-                } else {
-                    matRef.current.opacity = baseOpacity * baseMultiplier; // Mode satellite : fondre les liens concept
-                }
-            }
-
-            if (isSatEdge) {
-                const c1 = new THREE.Color(theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24');
-                matRef.current.color.copy(c1);
+                targetColorHex = theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24';
             } else if (distance > 0.5) {
-                const c1 = new THREE.Color(theme.colors.secondary.slice(0, 7));
-                matRef.current.color.copy(c1);
+                targetColorHex = theme.colors.secondary;
             }
+
+            _scratchColor.set(targetColorHex.slice(0, 7));
+            matRef.current.color.lerp(_scratchColor, 0.15);
         }
     });
 
     // Masquer temporairement les liens jaunes des satellites pour un rendu "étoile et ses planètes"
     if (isSatEdge) return null;
 
-    const isLight = theme.id === 'POETIC_LIGHT';
-    const initialEdgeOpacity = isSatEdge 
-        ? (showSatellites ? 0.8 : 0.1) 
-        : ((distance <= 0.5 && !showSatellites) ? 1.0 : baseOpacity * (isLight ? 0.8 : 0.4));
-
     return (
         <mesh ref={meshRef} renderOrder={1}>
-            <boxGeometry args={[0.04, 1, 0.04]} />
+            {/* Base épaissie à 0.065 pour un rendu architectural robuste à épaisseur strictement constante */}
+            <boxGeometry args={[0.065, 1, 0.065]} />
             <meshBasicMaterial
                 ref={matRef}
                 color={(isSatEdge ? (theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24') : (distance <= 0.5 ? theme.colors.primary : theme.colors.secondary)).slice(0, 7)}
@@ -1534,6 +1531,13 @@ const GraphScene = ({
                     const tn = nodes.get(edge.target);
                     const isDirect = sn && tn ? (sn.distance === 0 || tn.distance === 0) : false;
                     const edgeDist = isDirect ? 0.5 : (sn && tn ? Math.max(sn.distance!, tn.distance!) : 2);
+                    
+                    // Détermination premium de si ce lien connecte un satellite épinglé (pinned) pour préserver sa visibilité
+                    const isPinnedEdge = !!(
+                        (sn?.isSatellite && (pinnedSatellites || []).some(p => p.name.toLowerCase() === sn.label.toLowerCase())) ||
+                        (tn?.isSatellite && (pinnedSatellites || []).some(p => p.name.toLowerCase() === tn.label.toLowerCase()))
+                    );
+
                     return (
                         <Edge
                             key={edge.id}
@@ -1544,6 +1548,7 @@ const GraphScene = ({
                             distance={edgeDist}
                             theme={theme}
                             showSatellites={showSatellites}
+                            isPinned={isPinnedEdge}
                         />
                     );
                 })}
@@ -1564,7 +1569,7 @@ const GraphScene = ({
                         loadingConnexes={loadingConnexes}
                         onGenerateSatellitesClick={onGenerateSatellitesClick}
                         loadingSatellites={loadingSatellites}
-                        isSelectedSatellite={selectedSatellite?.name === node.label}
+                        isSelectedSatellite={selectedSatellite?.name?.toLowerCase() === node.label.toLowerCase()}
                         setSelectedSatellite={setSelectedSatellite}
                         onDoubleClick={onWordDoubleClick}
                         isPinned={(pinnedSatellites || []).some(p => p.name.toLowerCase() === node.label.toLowerCase())}
@@ -1579,13 +1584,22 @@ const GraphScene = ({
 // --- Export ---
 export default function Constellation3DV2(props: ConstellationProps) {
     const theme = THEMES[props.activeTheme] || THEMES.AMBER;
-    const { selectedSatellite, setSelectedSatellite } = props;
+    const { selectedSatellite, setSelectedSatellite, pinnedSatellites = [] } = props;
+
+    // Détermination premium de l'état Pinned du satellite sélectionné pour contourner le mode Concept Focus
+    const isSelectedPinned = !!(selectedSatellite && pinnedSatellites.some(p => p.name.toLowerCase() === selectedSatellite.name.toLowerCase()));
 
     const { defaultZoom } = getDynamicZoomSettings();
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
     return (
-        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden" style={{ backgroundColor: 'var(--theme-bg)', touchAction: 'none' }}>
+        <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+            className="absolute inset-0 w-full h-full z-0 overflow-hidden" 
+            style={{ backgroundColor: 'var(--theme-bg)', touchAction: 'none' }}
+        >
             <Canvas
                 orthographic
                 camera={{ zoom: defaultZoom, position: [0, 0, 500], near: 1, far: 2000 }}
@@ -1606,7 +1620,7 @@ export default function Constellation3DV2(props: ConstellationProps) {
 
             {/* Premium UI for Satellite Description */}
             <AnimatePresence>
-                {selectedSatellite && props.showSatellites && (
+                {selectedSatellite && (props.showSatellites || isSelectedPinned) && (
                     <motion.div
                         initial={{ opacity: 0, y: 20, filter: 'blur(5px)' }}
                         animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
@@ -1626,11 +1640,11 @@ export default function Constellation3DV2(props: ConstellationProps) {
                                 style={{ 
                                     fontFamily: 'var(--app-font-display)',
                                     fontStyle: 'italic',
-                                    fontSize: '14px',
-                                    fontWeight: 700, // Heading emphasis
-                                    color: theme.id === 'POETIC_LIGHT' ? '#000000' : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24',
+                                    fontSize: '15px', // Unified size with floating label
+                                    fontWeight: 700, 
+                                    color: theme.id === 'POETIC_LIGHT' ? theme.colors.text : theme.id === 'RAW_MINIMAL' ? '#ffffff' : '#fbbf24', // Unified color scheme
                                     marginBottom: '10px',
-                                    letterSpacing: '0.15em',
+                                    letterSpacing: '0.15em', // Boosted to 0.15em for optimal legibility per request
                                     textTransform: 'capitalize'
                                 }}
                             >
@@ -1656,6 +1670,6 @@ export default function Constellation3DV2(props: ConstellationProps) {
 
             {/* Technical Overlays */}
             <div className="grain-overlay" />
-        </div>
+        </motion.div>
     );
 }

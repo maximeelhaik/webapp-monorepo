@@ -22,7 +22,8 @@
   /* ─── POLICE DISPLAY (Titres, Étiquettes 3D) ─────────────────────────── */
   /*     Options disponibles (décommenter la ligne souhaitée) :              */
 
-  /* --app-font-display: "DM Mono", monospace; */
+  /* Note de design : Assurez-vous que la police supporte la graisse 700 (Bold) car l'UI l'utilise. */
+  /* --app-font-display: "DM Mono", monospace; */ /* Attention: DM Mono s'arrête à 500 (Medium), pas de 700 natif */
   /* --app-font-display: "JetBrains Mono", monospace; */
   /* --app-font-display: "IBM Plex Mono", monospace;  */
   --app-font-display: "Space Mono", monospace;
